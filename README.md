@@ -2,6 +2,7 @@
 
 App de comparativos antes/depois, revisão e aprovação de produtos. Frontend em JavaScript com Vite, hospedagem na Vercel e banco, autenticação e imagens no Supabase. Não precisa de servidor próprio.
 
+- **Carregamentos visíveis:** animação ao abrir, entrar, salvar e processar arquivos, botões com indicador de espera, prévias de imagem com placeholder animado e progresso real por arquivo/comparativo nas operações que permitem contagem. As animações respeitam a preferência de movimento reduzido do navegador.
 - **Login obrigatório:** galeria, revisão, importação e downloads ficam disponíveis somente depois de autenticar. Ao sair, projetos e imagens são retirados da tela, inclusive em outras abas.
 - **Armazenamento na nuvem:** login por e-mail/senha, projetos e aprovações no Postgres e imagens em um bucket privado. Cada conta acessa seus próprios projetos. O trabalho salvo pode ser aberto em outro dispositivo usando a mesma conta.
 - **Colar imagens:** no cadastro do comparativo, clique no quadrado “Antes” ou “Depois” (ou selecione a área com Tab) e use **Ctrl+V**, ou **⌘V** no Mac. O quadrado selecionado fica destacado e o destino não muda ao passar o mouse sobre outra área. O botão interno **Escolher do computador** abre o seletor de arquivos; arrastar e soltar também continua disponível. Aceita imagens e capturas da área de transferência, com os mesmos limites dos uploads.
@@ -43,6 +44,16 @@ O nome legado `VITE_SUPABASE_ANON_KEY` também é aceito. Use apenas a chave pú
 
 6. Em **Authentication → URL Configuration**, adicione `http://127.0.0.1:5173/` nas URLs de redirecionamento durante o desenvolvimento. Depois da publicação, configure **Site URL** com a URL real da Vercel e inclua essa mesma URL, com `/` no final, na lista de redirecionamentos. Isso permite confirmar cadastro e recuperar senha. Configure o envio de e-mail/SMTP no Supabase conforme o uso da equipe.
 7. Reinicie `npm run dev` após alterar as variáveis. A tela de login abre automaticamente; entre com sua conta para usar o app.
+
+## Registrar uso das imagens na revisão
+
+Depois de aprovar uma imagem, marque **Usado**, preencha **Onde está sendo usada?** (por exemplo, “Catálogo de verão / Instagram”) e clique em **Salvar uso**. A revisão passa a exibir **Aprovada · Não usada** ou **Aprovada · Usada em …**, com contadores e os filtros **Aprovadas — não usadas** e **Aprovadas — usadas**.
+
+Em projetos Supabase que já estavam configurados, execute uma vez [`supabase/migrations/20261112_add_image_usage.sql`](supabase/migrations/20261112_add_image_usage.sql) no **SQL Editor**. Ele adiciona somente os campos de uso e a validação correspondente; os registros antigos começam como não usados. O script pode ser repetido. Em instalações novas, `supabase/schema.sql` já inclui essa estrutura.
+
+A chave pública do app não tem permissão para alterar tabelas, então a atualização precisa ser executada pelo responsável pelo Supabase. Depois, clique em **Atualizar** no app e publique o código atualizado na Vercel. Até executar o SQL, a galeria e as aprovações continuam disponíveis, e os controles de uso ficam desabilitados.
+
+O uso é preservado em backups `.ecproj` e ao renomear um produto. Substituir uma imagem, remover sua aprovação ou reprovar o comparativo limpa o registro de uso; a nova imagem precisa ser aprovada e ter seu uso registrado novamente. O salvamento de uso altera somente esses campos, preservando nomes e imagens editados por outro revisor. Os locais informados podem ter até 300 caracteres.
 
 ## Login fictício `ecatalogos@admin`
 
@@ -92,7 +103,7 @@ Os projetos antigos do IndexedDB são mantidos apenas para migração, que só f
 
 O IndexedDB pertence ao navegador e à origem do site. Se o trabalho antigo foi aberto como arquivo local ou em outra URL, exporte o backup `.ecproj` nessa versão e use **Importar backup ou ZIP** no app publicado, depois de entrar na conta.
 
-Use **Atualizar** para carregar alterações salvas em outro dispositivo. Não há edição colaborativa em tempo real; evite editar o mesmo comparativo simultaneamente em dispositivos diferentes.
+A mesma conta pode ser usada em dispositivos diferentes ao mesmo tempo. O botão **Sair** encerra apenas a sessão do navegador atual; abas do mesmo navegador compartilham a sessão. Use **Atualizar** para carregar alterações salvas em outro dispositivo. Não há edição colaborativa em tempo real; evite editar o mesmo comparativo simultaneamente em dispositivos diferentes.
 
 ## Versão portátil
 

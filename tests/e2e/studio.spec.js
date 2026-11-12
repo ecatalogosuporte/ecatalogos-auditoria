@@ -265,3 +265,242 @@ test('click selects the paste slot, hover keeps it selected, and the inner butto
   await page.keyboard.press('Control+V');
   await expect(page.locator('#modal')).toBeHidden();
 });
+
+
+test('two independent browsers can use the same account and signing out does not revoke the other session', async ({ page, context, browser }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/');
+  await login(page);
+  const otherContext = await browser.newContext();
+  try {
+    await mockSupabase(otherContext, undefined, backend);
+    const other = await otherContext.newPage();
+    await other.goto(new URL('/', page.url()).href);
+    await login(other);
+    expect(backend.sessions.size).toBe(2);
+    await page.locator('#signOut').click();
+    await expectLocked(page);
+    // Requiring a refresh proves the other session remains valid on the backend,
+    // instead of merely displaying an already-loaded page with an unexpired JWT.
+    await other.evaluate(() => {
+      const key = Object.keys(localStorage).find(key => key.endsWith('-auth-token'));
+      const session = JSON.parse(localStorage.getItem(key));
+      const token = session.access_token.split('.');
+      const claims = JSON.parse(atob(token[1].replace(/-/g, '+').replace(/_/g, '/')));
+      claims.exp = Math.floor(Date.now() / 1000) - 60;
+      token[1] = btoa(JSON.stringify(claims)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+      session.access_token = token.join('.');
+      session.expires_at = claims.exp;
+      localStorage.setItem(key, JSON.stringify(session));
+    });
+    await other.reload();
+    await expect(other.locator('#studioShell')).toBeVisible();
+    await expect(other.locator('#storageStatus')).toHaveText('Salvo na nuvem');
+    expect(backend.sessions.size).toBe(1);
+    expect(backend.nextSession).toBe(3);
+  } finally { await otherContext.close(); }
+});
+
+test('review records approved image usage, filters used and unused, and preserves it in backups', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/');
+  await login(page);
+  await addPair(page);
+  await page.locator('#openReview').click();
+  await expect(page.locator('[name="isUsed"]')).toBeDisabled();
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('.usage-status')).toHaveText('Aprovada · Não usada');
+  await page.locator('[name="isUsed"]').check();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  expect(backend.pairs[0].is_used).toBe(false);
+  await expect(page.locator('[name="usedIn"]')).toBeFocused();
+  await page.locator('[name="usedIn"]').fill('   ');
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Informe onde');
+  await page.locator('[name="usedIn"]').fill('Catálogo Verão / Instagram <campanha>');
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.usage-status')).toHaveText('Aprovada · Usada em Catálogo Verão / Instagram <campanha>');
+  expect(backend.pairs[0].is_used).toBe(true);
+  expect(backend.uploads).toBe(2);
+  await page.reload();
+  await expect(page.locator('[name="isUsed"]')).toBeChecked();
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Catálogo Verão / Instagram <campanha>');
+  await page.locator('#reviewFilter').selectOption('approved-unused');
+  await expect(page.locator('.review-pair')).toHaveCount(0);
+  await page.locator('#reviewFilter').selectOption('approved-used');
+  await expect(page.locator('.review-pair')).toHaveCount(1);
+  await page.locator('[name="isUsed"]').uncheck();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.review-pair')).toHaveCount(0);
+  await page.locator('#reviewFilter').selectOption('approved-unused');
+  await expect(page.locator('.review-pair')).toHaveCount(1);
+  await page.locator('[name="isUsed"]').check();
+  await page.locator('[name="usedIn"]').fill('Site da loja');
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await page.locator('#reviewFilter').selectOption('all');
+  await expect(page.locator('.usage-status')).toContainText('Site da loja');
+  await page.locator('#backToStudio').click();
+  const backup = await downloaded(page, '#downloadBackup');
+  await page.locator('#archiveFile').setInputFiles({ name: backup.name, mimeType: 'application/zip', buffer: backup.bytes });
+  await expect(page.locator('.project')).toHaveCount(2);
+  await page.locator('#openReview').click();
+  await expect(page.locator('.usage-status')).toHaveText('Aprovada · Usada em Site da loja');
+  await expect(page.locator('#reviewSummary')).toContainText('1 aprovada usada');
+  await page.screenshot({ path: 'test-results/review-usage-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/review-usage-mobile.png', fullPage: true });
+});
+
+test('usage edits preserve other reviewer changes and failed saves retain the draft', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click();
+  await page.locator('[data-choice="approved"]').click();
+  await page.locator('[name="isUsed"]').check();
+  await page.locator('[name="usedIn"]').fill('Instagram');
+  backend.rejectUsage = true;
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Não foi possível salvar');
+  await expect(page.locator('.usage-status')).toHaveText('Aprovada · Não usada');
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Instagram');
+  backend.rejectUsage = false;
+  backend.pairs[0].name = 'Renomeado por outra pessoa';
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.usage-status')).toContainText('Instagram');
+  expect(backend.pairs[0].name).toBe('Renomeado por outra pessoa');
+  await page.locator('[name="usedIn"]').fill('Catálogo');
+  backend.pairs[0].review_status = 'rejected';
+  backend.pairs[0].is_used = false; backend.pairs[0].used_in = '';
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('precisa estar aprovada');
+  expect(backend.pairs[0].is_used).toBe(false);
+  expect(backend.uploads).toBe(2);
+});
+
+test('renaming retains usage; rejecting or replacing an image clears approval and usage', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page); await addPair(page);
+  const use = async () => {
+    await page.locator('[data-choice="approved"]').click();
+    await page.locator('[name="isUsed"]').check();
+    await page.locator('[name="usedIn"]').fill('Catálogo');
+    await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+    await expect(page.locator('.usage-status')).toContainText('Catálogo');
+  };
+  await page.locator('#openReview').click(); await use();
+  await page.locator('[data-choice="rejected"]').click();
+  await expect(page.locator('[name="isUsed"]')).toBeDisabled();
+  expect(backend.pairs[0].is_used).toBe(false);
+  expect(backend.pairs[0].used_in).toBe('');
+  await use();
+  await page.locator('#backToStudio').click();
+  await page.locator('[data-action="edit"]').click();
+  await page.locator('#productName').fill('Novo nome');
+  await page.locator('#savePair').click();
+  await expect(page.locator('#modal')).toBeHidden();
+  expect(backend.pairs[0].is_used).toBe(true);
+  await page.locator('[data-action="edit"]').click();
+  await page.locator('#afterFile').setInputFiles(logo.pathname);
+  await page.locator('#savePair').click();
+  await expect(page.locator('#modal')).toBeHidden();
+  expect(backend.pairs[0].review_status).toBe(null);
+  expect(backend.pairs[0].is_used).toBe(false);
+  expect(backend.pairs[0].used_in).toBe('');
+});
+
+test('databases awaiting migration keep the gallery and approvals working with usage disabled', async ({ page, context }) => {
+  const backend = await mockSupabase(context); backend.usageSupported = false;
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click();
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('✓ Aprovado');
+  await expect(page.locator('[name="isUsed"]')).toBeDisabled();
+  await expect(page.locator('.usage-help')).toContainText('precisa ser ativado');
+  expect(Object.hasOwn(backend.pairs[0], 'is_used')).toBe(false);
+});
+
+
+test('login displays a loader while waiting, then restores the form after an error', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/');
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  let release;
+  backend.loginDelay = new Promise(resolve => { release = resolve; });
+  backend.rejectLogin = true;
+  await page.locator('#authEmail').fill('studio@example.com');
+  await page.locator('#authPassword').fill('test-password');
+  await page.locator('#authSubmit').click();
+  await expect(page.locator('#loadingOverlay')).toBeVisible();
+  await expect(page.locator('#loadingTitle')).toHaveText('Entrando na sua conta…');
+  await expect(page.locator('#authSubmit')).toHaveText('Entrando…');
+  await expect(page.locator('#authSubmit')).toBeDisabled();
+  await expect(page.locator('#authSubmit')).toHaveAttribute('aria-busy', 'true');
+  await page.screenshot({ path: 'test-results/loading-login.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/loading-mobile.png', fullPage: true });
+  release();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  await expect(page.locator('#authFeedback')).toContainText('incorretos');
+  await expect(page.locator('#authSubmit')).toHaveText('Entrar na minha conta');
+  await expect(page.locator('#authSubmit')).toBeEnabled();
+  backend.loginDelay = null; backend.rejectLogin = false;
+  await login(page);
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+});
+
+test('upload progress follows real files and image loading completes after a gallery refresh', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page);
+  await page.locator('#newPair').click();
+  await page.locator('#productName').fill('Produto com loading');
+  await page.locator('#beforeFile').setInputFiles(logo.pathname);
+  await page.locator('#afterFile').setInputFiles({ name: 'editada.png', mimeType: 'image/png', buffer: pixel });
+  await expect(page.locator('#beforeZone')).not.toHaveClass(/image-loading/);
+  let releaseUpload;
+  backend.uploadDelay = new Promise(resolve => { releaseUpload = resolve; });
+  await page.locator('#savePair').click();
+  await expect(page.locator('#loadingOverlay')).toBeVisible();
+  await expect(page.locator('#loadingTitle')).toHaveText('Enviando imagens…');
+  await expect(page.locator('#loadingProgress')).toHaveAttribute('max', '2');
+  await expect(page.locator('#loadingProgress')).toHaveAttribute('value', '0');
+  await expect(page.locator('#savePair')).toHaveText('Salvando…');
+  await page.screenshot({ path: 'test-results/loading-upload.png', fullPage: true });
+  releaseUpload();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  await expect(page.locator('#countReady')).toHaveText('1');
+  expect(backend.uploads).toBe(2);
+  backend.uploadDelay = null;
+  let releaseDownload;
+  backend.downloadDelay = new Promise(resolve => { releaseDownload = resolve; });
+  await page.locator('#refreshCloud').click();
+  await expect(page.locator('#loadingTitle')).toHaveText('Carregando comparativos…');
+  await expect(page.locator('#loadingProgress')).toHaveAttribute('max', '1');
+  await expect(page.locator('#loadingDetail')).toHaveText('0 de 1 comparativos prontos');
+  releaseDownload();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  await expect(page.locator('.compare-image.image-loading')).toHaveCount(0);
+  await expect(page.locator('#countReady')).toHaveText('1');
+});
+
+test('saving usage shows feedback and releases controls without losing the draft on failure', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click();
+  await page.locator('[data-choice="approved"]').click();
+  await page.locator('[name="isUsed"]').check();
+  await page.locator('[name="usedIn"]').fill('Catálogo');
+  let release;
+  backend.usageDelay = new Promise(resolve => { release = resolve; });
+  backend.rejectUsage = true;
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('#loadingOverlay')).toBeVisible();
+  await expect(page.locator('#loadingTitle')).toHaveText('Salvando uso da imagem...');
+  await expect(page.locator('#reviewView')).toHaveAttribute('aria-busy', 'true');
+  release();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Salvar uso', exact: true })).toBeEnabled();
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Catálogo');
+  await expect(page.locator('.usage-status')).toHaveText('Aprovada · Não usada');
+});

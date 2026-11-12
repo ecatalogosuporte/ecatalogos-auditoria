@@ -19,17 +19,31 @@ async function rows(query) {
 }
 
 export class CloudStore {
-  constructor(client, userId, onWarning = () => {}) {
+  constructor(client, userId, onWarning = () => {}, onProgress = () => {}) {
     this.client = client;
     this.userId = userId;
     this.mode = 'cloud';
     this.blobs = new Map();
     this.records = new Map();
     this.onWarning = onWarning;
+    this.onProgress = onProgress;
+    this.usageSupported = null;
   }
 
   query(store) { return this.client.from(TABLES[store]); }
   bucket() { return this.client.storage.from(BUCKET); }
+
+  async supportsUsage() {
+    if (this.usageSupported !== null) return this.usageSupported;
+    const result = await this.query('pairs').select('is_used,used_in').eq('owner_id', this.userId).limit(1);
+    if (result.error && ['42703', 'PGRST204'].includes(result.error.code) && /is_used|used_in/.test(result.error.message)) {
+      this.usageSupported = false;
+    } else {
+      check(result);
+      this.usageSupported = true;
+    }
+    return this.usageSupported;
+  }
   async all(store) {
     if (store !== 'projects') throw new Error('Selecione um projeto para carregar os comparativos.');
     const data = await rows(() => this.query(store).select('*').eq('owner_id', this.userId).order('created_at').order('id'));
@@ -52,9 +66,11 @@ export class CloudStore {
   }
 
   async getPairs(projectId) {
+    await this.supportsUsage();
     const data = await this.pairRows(projectId);
     const result = new Array(data.length);
-    let index = 0;
+    let index = 0, completed = 0;
+    if (data.length) this.onProgress({ phase: 'download', completed, total: data.length });
     // Bound network requests when opening a gallery with many original images.
     const worker = async () => {
       while (index < data.length) {
@@ -65,8 +81,10 @@ export class CloudStore {
           id: row.id, projectId: row.project_id, name: row.name, order: row.position,
           created: row.created_at, beforeBlob, afterBlob,
           beforeName: row.before_name, afterName: row.after_name,
-          reviewStatus: row.review_status, reviewedAt: row.reviewed_at
+          reviewStatus: row.review_status, reviewedAt: row.reviewed_at,
+          isUsed: row.is_used || false, usedIn: row.used_in || ''
         };
+        this.onProgress({ phase: 'download', completed: ++completed, total: data.length });
       }
     };
     await Promise.all(Array.from({ length: Math.min(data.length, 3) }, worker));
@@ -93,13 +111,25 @@ export class CloudStore {
       return;
     }
     const previous = await this.previous(record.id);
+    const usageSupported = await this.supportsUsage();
+    const isUsed = Boolean(record.isUsed), usedIn = isUsed ? String(record.usedIn || '').trim() : '';
+    if (isUsed && !usageSupported) throw new Error('O registro de uso precisa ser ativado pelo responsável pela Auditoria.');
+    if (isUsed && (record.reviewStatus !== 'approved' || !usedIn || usedIn.length > 300)) {
+      throw new Error('Para marcar como usada, aprove a imagem e informe onde ela está sendo utilizada (até 300 caracteres).');
+    }
     const uploaded = [];
+    const uploadTotal = ['before', 'after'].filter(slot => {
+      const blob = record[`${slot}Blob`], path = previous?.[`${slot}_path`];
+      return blob && !(path && this.blobs.get(path) === blob);
+    }).length;
+    if (uploadTotal) this.onProgress({ phase: 'upload', completed: 0, total: uploadTotal });
     const next = {
       id: record.id, owner_id: this.userId, project_id: record.projectId, name: record.name,
       position: record.order, created_at: record.created,
       before_name: record.beforeName || '', after_name: record.afterName || '',
       review_status: record.reviewStatus || null, reviewed_at: record.reviewedAt || null
     };
+    if (usageSupported) Object.assign(next, { is_used: isUsed, used_in: usedIn });
     try {
       for (const slot of ['before', 'after']) {
         const blob = record[`${slot}Blob`], oldPath = previous?.[`${slot}_path`];
@@ -112,9 +142,11 @@ export class CloudStore {
         const path = `${this.userId}/${record.projectId}/${record.id}/${slot}-${crypto.randomUUID()}.${ext}`;
         check(await this.bucket().upload(path, blob, { contentType: blob.type, upsert: false }));
         uploaded.push(path);
+        this.onProgress({ phase: 'upload', completed: uploaded.length, total: uploadTotal });
         this.blobs.set(path, blob);
         next[`${slot}_path`] = path;
       }
+      if (uploadTotal) this.onProgress({ phase: 'save' });
       check(await this.query(store).upsert(next));
     } catch (error) {
       await this.cleanup(uploaded, false);
@@ -133,5 +165,20 @@ export class CloudStore {
 
   async movePairs(firstId, secondId) {
     check(await this.client.rpc('studio_swap_pairs', { first_id: firstId, second_id: secondId }));
+  }
+
+  async setUsage(id, isUsed, usedIn) {
+    if (!await this.supportsUsage()) throw new Error('O registro de uso precisa ser ativado pelo responsável pela Auditoria.');
+    const location = isUsed ? String(usedIn || '').trim() : '';
+    if (isUsed && (!location || location.length > 300)) throw new Error('Informe onde a imagem está sendo usada (até 300 caracteres).');
+    // Update only usage fields so edits from a second reviewer do not overwrite images or names.
+    const result = await this.query('pairs').update({ is_used: Boolean(isUsed), used_in: location })
+      .eq('owner_id', this.userId).eq('id', id).eq('review_status', 'approved')
+      .select('id,is_used,used_in').single();
+    if (result.error?.code === 'PGRST116') throw new Error('A imagem precisa estar aprovada. Atualize a revisão e tente novamente.');
+    const saved = check(result);
+    const cached = this.records.get(id);
+    if (cached) this.records.set(id, { ...cached, is_used: saved.is_used, used_in: saved.used_in });
+    return { isUsed: saved.is_used, usedIn: saved.used_in };
   }
 }

@@ -11,6 +11,16 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="auth-required">
+<div class="loading-overlay" id="loadingOverlay">
+  <section class="loading-card" role="status" aria-live="polite" aria-atomic="true" aria-labelledby="loadingTitle">
+    <div class="loading-brand"><img src="/logo-ecatalogos.png" width="40" height="40" alt=""><span>eCatalogos <strong>Auditoria</strong></span></div>
+    <div class="loading-orbit" aria-hidden="true"><span></span><span></span><span></span><i>e</i></div>
+    <h2 id="loadingTitle">Abrindo eCatalogos Auditoria…</h2>
+    <p id="loadingDetail">Preparando seu espaço de trabalho.</p>
+    <progress class="loading-progress" id="loadingProgress" aria-label="Progresso da operação"></progress>
+    <span class="loading-footnote">Aguarde um instante</span>
+  </section>
+</div>
 <div class="shell" id="studioShell" hidden inert>
   <aside class="sidebar" id="sidebar">
     <div class="brand"><img class="brand-mark" src="/logo-ecatalogos.png" width="40" height="40" alt="Logo eCatalogos Auditoria"><div><div class="brand-name">eCatalogos</div><div class="brand-meta">AUDITORIA</div></div></div>
@@ -61,6 +71,8 @@
           <option value="all">Todas</option>
           <option value="pending">Não avaliadas</option>
           <option value="approved">Aprovadas</option>
+          <option value="approved-unused">Aprovadas — não usadas</option>
+          <option value="approved-used">Aprovadas — usadas</option>
           <option value="rejected">Reprovadas</option>
         </select>
       </div>

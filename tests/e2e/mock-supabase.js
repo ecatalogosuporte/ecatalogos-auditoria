@@ -2,22 +2,42 @@ import { expect } from '@playwright/test';
 
 export const defaultIdentity = { email: 'studio@example.com', login: 'studio@example.com', password: 'test-password' };
 
-export async function mockSupabase(context, identity = defaultIdentity) {
+export async function mockSupabase(context, identity = defaultIdentity, sharedBackend = null) {
   const owner = '11111111-1111-4111-8111-111111111111';
   const user = { id: owner, aud: 'authenticated', role: 'authenticated', email: identity.email, app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
-  const backend = { projects: [], pairs: [], objects: new Map(), uploads: 0, dataRequests: 0, downloadRequests: 0, downloadDelay: null, rejectLogin: false };
+  const backend = sharedBackend || { sessions: new Map(), nextSession: 0, usageSupported: true, rejectUsage: false, loginDelay: null, uploadDelay: null, usageDelay: null, uploadRequests: 0, projects: [], pairs: [], objects: new Map(), uploads: 0, dataRequests: 0, downloadRequests: 0, downloadDelay: null, rejectLogin: false };
   const encode = data => Buffer.from(JSON.stringify(data)).toString('base64url');
-  const token = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: owner, role: 'authenticated', exp: Math.floor(Date.now()/1000)+3600 })}.test`;
+  const session = previousRefresh => {
+    if (previousRefresh) backend.sessions.delete(previousRefresh);
+    const id = ++backend.nextSession;
+    const access_token = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: owner, role: 'authenticated', session_id: String(id), exp: Math.floor(Date.now()/1000)+3600 })}.test`;
+    const refresh_token = `test-refresh-${id}`;
+    backend.sessions.set(refresh_token, access_token);
+    return { access_token, refresh_token, expires_in: 3600, token_type: 'bearer', user };
+  };
   await context.route(/https?:\/\/(?:127\.0\.0\.1:54321|[a-z0-9]+\.supabase\.co)\//, async route => {
     const request = route.request(), url = new URL(request.url());
     const reply = (data, status = 200) => route.fulfill({ status, json: data });
     if (url.pathname === '/auth/v1/token') {
+      if (backend.loginDelay) await backend.loginDelay;
+      if (url.searchParams.get('grant_type') === 'refresh_token') {
+        const refresh = request.postDataJSON().refresh_token;
+        if (!backend.sessions.has(refresh)) return reply({ error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token: Refresh Token Not Found' }, 400);
+        return reply(session(refresh));
+      }
       if (backend.rejectLogin) return reply({ error_code: 'invalid_credentials', msg: 'Invalid login credentials' }, 400);
       expect(request.postDataJSON()).toMatchObject({ email: identity.email, password: identity.password });
-      return reply({ access_token: token, refresh_token: 'test-refresh', expires_in: 3600, token_type: 'bearer', user });
+      return reply(session());
     }
     if (url.pathname === '/auth/v1/user') return reply(user);
-    if (url.pathname === '/auth/v1/logout') return route.fulfill({ status: 204 });
+    if (url.pathname === '/auth/v1/logout') {
+      if ((url.searchParams.get('scope') || 'global') === 'global') backend.sessions.clear();
+      else {
+        const token = request.headers().authorization?.replace(/^Bearer /, '');
+        for (const [refresh, access] of backend.sessions) if (access === token) backend.sessions.delete(refresh);
+      }
+      return route.fulfill({ status: 204 });
+    }
     if (url.pathname.startsWith('/rest/v1/')) {
       backend.dataRequests++;
       if (url.pathname.endsWith('/rpc/studio_swap_pairs')) {
@@ -27,12 +47,22 @@ export async function mockSupabase(context, identity = defaultIdentity) {
         return route.fulfill({ status: 204 });
       }
       const table = url.pathname.endsWith('studio_projects') ? backend.projects : backend.pairs;
+      if (!backend.usageSupported && url.searchParams.get('select')?.includes('is_used')) {
+        return reply({ code: '42703', message: 'column studio_pairs.is_used does not exist' }, 400);
+      }
       if (request.method() === 'POST') {
         const record = request.postDataJSON(), index = table.findIndex(p => p.id === record.id);
         if (index < 0) table.push(record); else table[index] = record;
         return route.fulfill({ status: 201, body: '' });
       }
       const result = table.filter(p => [...url.searchParams].every(([key, value]) => !value.startsWith('eq.') || String(p[key]) === value.slice(3)));
+      if (request.method() === 'PATCH') {
+        if (backend.usageDelay) await backend.usageDelay;
+        if (backend.rejectUsage) return reply({ message: 'Não foi possível salvar o uso.' }, 500);
+        if (!result.length) return reply({ code: 'PGRST116', message: 'No rows returned' }, 406);
+        for (const row of result) Object.assign(row, request.postDataJSON());
+        return reply(result[0]);
+      }
       if (request.method() === 'DELETE') {
         for (const row of result) {
           table.splice(table.indexOf(row), 1);
@@ -51,6 +81,8 @@ export async function mockSupabase(context, identity = defaultIdentity) {
         return reply([]);
       }
       if (request.method() === 'POST') {
+        backend.uploadRequests++;
+        if (backend.uploadDelay) await backend.uploadDelay;
         const form = await new Response(request.postDataBuffer(), { headers: { 'Content-Type': request.headers()['content-type'] } }).formData();
         const file = [...form.values()].find(value => value instanceof Blob);
         backend.objects.set(path, { body: Buffer.from(await file.arrayBuffer()), contentType: file.type });

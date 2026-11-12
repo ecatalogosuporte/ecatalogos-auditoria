@@ -30,6 +30,27 @@ create table if not exists public.studio_pairs (
   check (review_status is null or (before_path is not null and after_path is not null))
 );
 
+-- Registro de onde as imagens aprovadas estão sendo usadas.
+
+alter table public.studio_pairs
+  add column if not exists is_used boolean not null default false,
+  add column if not exists used_in text not null default '';
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'studio_pairs_usage_valid'
+      and conrelid = 'public.studio_pairs'::regclass) then
+    alter table public.studio_pairs add constraint studio_pairs_usage_valid check (
+      (not is_used and used_in = '') or
+      (is_used and review_status is not distinct from 'approved'
+        and char_length(trim(used_in)) between 1 and 300)
+    );
+  end if;
+end;
+$$;
+
+notify pgrst, 'reload schema';
+
 create index if not exists studio_projects_owner_created on public.studio_projects(owner_id, created_at);
 create index if not exists studio_pairs_owner_project_position on public.studio_pairs(owner_id, project_id, position);
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CloudStore, MAX_IMAGE_BYTES } from '../cloud-store.js';
 
-function setup() {
+function setup(usageSupported = true) {
   const objects = new Map(), metadata = new Map(), uploads = [], removals = [];
   let writeError = false, uploadError = false;
   const client = {
@@ -19,7 +19,7 @@ function setup() {
         if (writeError) return { error: { message: 'Database failed' } };
         metadata.set(row.id, { ...row }); return { data: null };
       },
-      select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: null }) })
+      select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: null }), limit: async () => usageSupported ? ({ data: [] }) : ({ error: { code: '42703', message: 'column studio_pairs.is_used does not exist' } }) })
     })
   };
   const store = new CloudStore(client, 'owner');
@@ -78,4 +78,17 @@ test('upload failure does not write metadata', async () => {
   failUpload();
   await assert.rejects(store.put('pairs', pair()), /Upload failed/);
   assert.equal(metadata.size, 0);
+});
+
+
+test('existing databases keep saving normal comparisons while usage waits for migration', async () => {
+  const { store, metadata, uploads } = setup(false);
+  const record = pair();
+  await store.put('pairs', record);
+  await store.put('pairs', { ...record, reviewStatus: 'approved' });
+  assert.equal(store.usageSupported, false);
+  assert.equal(Object.hasOwn(metadata.get(record.id), 'is_used'), false);
+  assert.equal(uploads.length, 2);
+  await assert.rejects(store.setUsage(record.id, true, 'Catálogo'), /precisa ser ativado/);
+  await assert.rejects(store.put('pairs', { ...record, reviewStatus: 'approved', isUsed: true, usedIn: 'Catálogo' }), /precisa ser ativado/);
 });

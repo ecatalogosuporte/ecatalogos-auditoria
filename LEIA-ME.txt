@@ -41,3 +41,10 @@ As exportações PNG (1068 × 1473), ZIP, PDF e as decisões de aprovação
 continuam disponíveis após o login.
 Os botões “Baixar antes” e “Baixar depois” baixam cada imagem original
 separadamente, na galeria e na revisão, sem alterar seu arquivo.
+
+USO DAS IMAGENS NA REVISÃO
+Depois de aprovar uma imagem, marque “Usado”, informe onde ela é utilizada
+e clique em “Salvar uso”. Há filtros para aprovadas usadas e não usadas.
+Para habilitar no banco já existente, execute no SQL Editor do Supabase:
+  supabase/migrations/20261112_add_image_usage.sql
+Depois, atualize o app e publique a versão atualizada na Vercel.
