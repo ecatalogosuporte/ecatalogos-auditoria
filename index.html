@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0D99FF">
+  <meta name="description" content="Organize comparativos de produtos, revise imagens antes e depois e exporte apresentações com o eCatalogos Auditoria.">
+  <title>eCatalogos Auditoria</title>
+  <link rel="icon" type="image/png" href="/logo-ecatalogos.png">
+  <link rel="apple-touch-icon" href="/logo-ecatalogos.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-required">
+<div class="shell" id="studioShell" hidden inert>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><img class="brand-mark" src="/logo-ecatalogos.png" width="40" height="40" alt="Logo eCatalogos Auditoria"><div><div class="brand-name">eCatalogos</div><div class="brand-meta">AUDITORIA</div></div></div>
+    <div class="nav-caption">ESPAÇO DE TRABALHO</div>
+    <div class="nav-current"><span class="nav-symbol">▦</span> Comparativos <span class="nav-current-dot"></span></div>
+    <button class="nav-review" id="reviewSidebar"><span aria-hidden="true">◉</span> Revisão e aprovação <span aria-hidden="true">↗</span></button>
+    <div class="projects-head"><span>MEUS PROJETOS</span><button class="icon-button" id="addProject" aria-label="Novo projeto" title="Novo projeto">＋</button></div>
+    <div class="project-list" id="projectList"></div>
+    <div class="sidebar-footer">
+      <div class="safe-label"><span class="safe-dot"></span> <span id="storageLabel">Projetos na sua conta</span></div>
+      <p id="storageDescription">Imagens e aprovações protegidas pelo seu login.</p>
+      <button class="side-action cloud-action" id="migrateLocal" hidden>↑ <span>Copiar projetos locais para nuvem</span></button>
+      <button class="side-action" id="downloadBackup">⇩ <span>Baixar backup do projeto</span></button>
+      <button class="side-action" id="uploadBackup">⇧ <span>Importar backup ou ZIP</span></button>
+    </div>
+  </aside>
+  <main class="workspace">
+    <div class="topbar"><button class="menu-toggle" id="toggleSidebar" aria-label="Abrir menu">☰</button><div class="crumb">eCatalogos <span>/</span> Auditoria <span>/</span> <strong>Comparativos</strong></div><div class="account-actions"><span class="account-email" id="accountEmail" hidden></span><div class="topbar-status" role="status"><span class="green-indicator"></span> <span id="storageStatus">Carregando…</span></div><button class="button light small" id="refreshCloud" hidden>↻ <span>Atualizar</span></button><button class="button primary small" id="openAuth" hidden>Entrar na nuvem</button><button class="button light small" id="signOut" hidden>Sair</button></div></div>
+    <div class="content">
+      <div class="hero-top"><span class="eyebrow"><span class="tiny-square"></span> BIBLIOTECA DE COMPARATIVOS</span><div class="hero-link">ANTES <span>→</span> DEPOIS</div></div>
+      <div class="hero-heading"><div><h1 id="projectTitle">Comparativos</h1><p>Gerencie seus produtos e monte apresentações consistentes em segundos.</p></div><div class="hero-actions"><button class="button light small" id="renameProject" aria-label="Renomear projeto"><span class="action-icon" aria-hidden="true">✎</span> <span>Renomear projeto</span></button><button class="button light small" id="deleteProject" title="Excluir projeto" aria-label="Excluir projeto"><span class="action-icon" aria-hidden="true">×</span> <span>Excluir</span></button></div></div>
+      <div class="metrics"><div class="metric"><div class="metric-icon">▧</div><div><div class="metric-label">PRODUTOS</div><div class="metric-number" id="countPairs">0</div></div></div><div class="metric"><div class="metric-icon success">✓</div><div><div class="metric-label">PRONTOS PARA EXPORTAR</div><div class="metric-number" id="countReady">0</div></div></div><div class="metric"><div class="metric-icon muted">◷</div><div><div class="metric-label">AGUARDANDO IMAGENS</div><div class="metric-number" id="countPending">0</div></div></div></div>
+      <div class="section-title"><div><div class="section-eyebrow">SEUS ARQUIVOS</div><h2>Galeria de comparações <span id="galleryCount">(0)</span></h2></div><div class="section-actions"><button class="button review-launch" id="openReview">◉ <span>Visualizar e aprovar</span></button><button class="button light" id="bulkImport">⇧ <span>Importar imagens</span></button><button class="button primary" id="newPair">＋ <span>Novo comparativo</span></button></div></div>
+      <div class="filterbar"><div class="search-wrap"><span>⌕</span><input type="search" id="search" placeholder="Buscar produto pelo nome..." aria-label="Buscar produto"></div><div class="filterbar-right"><button class="button white" id="printGallery" title="Imprimir ou salvar PDF" aria-label="Imprimir ou salvar PDF">▣ <span>Imprimir / PDF</span></button><button class="button dark" id="exportAll" aria-label="Exportar PNGs em ZIP">⇩ <span>Exportar PNGs em ZIP</span></button></div></div>
+      <div class="notice" id="notice" hidden></div>
+      <div class="gallery" id="gallery"><div class="empty-state"><h3>Abrindo o eCatalogos Auditoria…</h3><p>Carregando seus projetos e comparativos.</p></div></div>
+      <div class="end-note">Criado para o fluxo de imagens do eCatalogos Auditoria <span>•</span> Exportações no formato 1068 × 1473 px</div>
+    </div>
+  </main>
+</div>
+
+<!-- Modo de revisão: mesmo layout do primeiro HTML de 18 comparações. -->
+<div id="reviewView" class="review-view" hidden>
+  <header class="review-header">
+    <div class="review-header-content">
+      <div class="review-headings"><h1>Antes e depois</h1><p id="reviewDescription">Comparações de produtos da sua coleção.</p></div>
+      <div class="review-header-actions">
+        <button class="review-back" type="button" id="backToStudio">← Voltar à Auditoria</button>
+      </div>
+    </div>
+  </header>
+  <main class="review-main">
+    <div class="review-overview">
+      <div id="reviewSummary" class="review-summary" aria-live="polite"></div>
+      <div class="review-filter-bar">
+        <label for="reviewFilter">Exibir:</label>
+        <select id="reviewFilter" aria-label="Filtrar comparações por aprovação">
+          <option value="all">Todas</option>
+          <option value="pending">Não avaliadas</option>
+          <option value="approved">Aprovadas</option>
+          <option value="rejected">Reprovadas</option>
+        </select>
+      </div>
+    </div>
+    <div id="reviewCards" class="review-cards"></div>
+  </main>
+</div>
+<div class="overlay" id="modal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <div class="dialog-head"><div><span class="eyebrow">COMPARATIVO DE PRODUTO</span><h2 id="dialogTitle">Novo comparativo</h2></div><button class="close-button" id="closeModal" aria-label="Fechar">×</button></div>
+    <form id="pairForm">
+      <label class="field-label" for="productName">Nome do produto</label><input type="text" class="name-input" maxlength="100" id="productName" placeholder="Ex.: Mocassim de couro, tênis, bolsa..." required>
+      <div class="upload-grid">
+        <div><label class="upload-title">01 <strong>ANTES</strong> <small>Imagem original</small></label><div class="upload-zone" id="beforeZone" data-slot="before" role="group" tabindex="0" aria-label="Imagem antes: clique para selecionar e cole com Ctrl+V" aria-describedby="pasteImageHint"><div class="zone-placeholder"><span class="zone-icon" aria-hidden="true">⧉</span><strong>Clique aqui e cole</strong><small class="paste-shortcut"><kbd>Ctrl</kbd> + <kbd>V</kbd></small><small>ou arraste uma imagem</small></div><img class="zone-image" id="beforePreview" alt="Prévia original" hidden><button type="button" class="choose-image" id="beforeChoose" aria-label="Escolher imagem antes do computador">Escolher do computador</button></div><button type="button" class="remove-slot" id="clearBefore" hidden>Remover imagem</button></div>
+        <div><label class="upload-title">02 <strong>DEPOIS</strong> <small>Imagem modificada</small></label><div class="upload-zone" id="afterZone" data-slot="after" role="group" tabindex="0" aria-label="Imagem depois: clique para selecionar e cole com Ctrl+V" aria-describedby="pasteImageHint"><div class="zone-placeholder"><span class="zone-icon" aria-hidden="true">⧉</span><strong>Clique aqui e cole</strong><small class="paste-shortcut"><kbd>Ctrl</kbd> + <kbd>V</kbd></small><small>ou arraste uma imagem</small></div><img class="zone-image" id="afterPreview" alt="Prévia modificada" hidden><button type="button" class="choose-image" id="afterChoose" aria-label="Escolher imagem depois do computador">Escolher do computador</button></div><button type="button" class="remove-slot" id="clearAfter" hidden>Remover imagem</button></div>
+      </div>
+      <p class="paste-image-hint" id="pasteImageHint">Clique no quadrado “Antes” ou “Depois” para selecioná-lo e pressione <strong>Ctrl+V</strong> (⌘V no Mac).</p>
+      <p class="dialog-info">Você pode salvar somente o “antes” e adicionar o “depois” mais tarde. Formatos JPG, PNG e WebP.</p>
+      <div class="dialog-footer"><button type="button" class="button light" id="cancelModal">Cancelar</button><button type="submit" class="button primary" id="savePair">Salvar comparativo</button></div>
+    </form>
+  </div>
+</div>
+<input type="file" id="beforeFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+<input type="file" id="afterFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+<input type="file" id="bulkFiles" accept="image/*,.zip,.ecproj" multiple hidden>
+<input type="file" id="archiveFile" accept=".zip,.ecproj" hidden>
+<div class="overlay" id="authModal">
+  <section class="dialog auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="dialog-head"><div class="auth-brand"><img src="/logo-ecatalogos.png" width="48" height="48" alt="eCatalogos Auditoria"><div><div class="brand-name">eCatalogos</div><div class="brand-meta">AUDITORIA</div></div></div><button class="close-button" id="closeAuth" aria-label="Fechar" hidden>×</button></div>
+    <span class="eyebrow">AUDITORIA DE IMAGENS</span>
+    <h2 id="authTitle">Entre no eCatalogos Auditoria.</h2>
+    <p class="auth-intro" id="authIntro">Faça login para acessar seus projetos, imagens e aprovações.</p>
+    <div class="auth-tabs" id="authTabs" inert><button type="button" id="authLogin" class="active">Entrar</button><button type="button" id="authSignup">Criar conta</button></div>
+    <form id="authForm" inert>
+      <div id="authEmailField"><label class="field-label" id="authEmailLabel" for="authEmail">E-mail ou usuário</label><input class="name-input" id="authEmail" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" placeholder="Digite seu e-mail ou usuário" required></div>
+      <div id="authPasswordField"><label class="field-label" for="authPassword">Senha</label><input class="name-input" id="authPassword" type="password" autocomplete="current-password" required></div>
+      <p id="authFeedback" class="auth-feedback" role="status" hidden></p>
+      <button class="button primary auth-submit" id="authSubmit" type="submit">Entrar na minha conta</button>
+      <button class="auth-forgot" id="authForgot" type="button">Esqueci minha senha</button>
+      <button class="auth-forgot" id="authBack" type="button" hidden>Voltar para entrar</button>
+    </form>
+    <div class="auth-gate-actions"><button class="button primary" id="retryAuth" type="button" hidden>Tentar novamente</button><button class="auth-forgot" id="gateSignOut" type="button" hidden>Sair e trocar conta</button></div>
+    <p class="auth-local-note">Acesso exclusivo para usuários autenticados. Seus projetos e imagens ficam protegidos na sua conta.</p>
+  </section>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<noscript>Ative o JavaScript para usar o eCatalogos Auditoria.</noscript>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

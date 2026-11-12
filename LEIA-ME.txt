@@ -1,0 +1,43 @@
+eCatalogos Auditoria
+========================
+
+A logo foi atualizada com o PNG enviado.
+
+VERSÃO WEB (VERCEL)
+Use Node.js 22. Na pasta do projeto:
+  npm ci
+  npm run dev
+
+Para gerar a versão de produção:
+  npm run build
+
+A pasta dist é o resultado para hospedagem. A Vercel já está configurada
+em vercel.json.
+
+BANCO SIMPLES: SUPABASE
+O uso do app exige login. Sem configuração do Supabase, o acesso fica bloqueado.
+Para salvar projetos, imagens e aprovações na nuvem:
+1. Crie um projeto Supabase.
+2. Execute supabase/schema.sql no SQL Editor.
+3. Configure a URL e a chave pública indicadas em .env.example na Vercel.
+4. Configure as URLs de autenticação no Supabase.
+5. Entre na nuvem pelo app.
+
+O README.md contém o passo a passo completo para rodar e publicar.
+
+VERSÃO PORTÁTIL
+Abra comparador_ecatalogos.html no Chrome ou Edge.
+Esse arquivo funciona sem instalação, com internet e login obrigatório.
+Ele usa o Supabase configurado ao gerar a versão portátil.
+A versão index.html agora deve ser aberta pelo servidor ou pela Vercel.
+
+BACKUP E MIGRAÇÃO
+Os dados locais antigos foram preservados no mesmo banco IndexedDB.
+Após entrar na nuvem, use “Copiar projetos locais para nuvem”.
+Se mudar de endereço, navegador ou computador, exporte o backup .ecproj
+na versão antiga e importe no app publicado, já conectado à sua conta.
+
+As exportações PNG (1068 × 1473), ZIP, PDF e as decisões de aprovação
+continuam disponíveis após o login.
+Os botões “Baixar antes” e “Baixar depois” baixam cada imagem original
+separadamente, na galeria e na revisão, sem alterar seu arquivo.
