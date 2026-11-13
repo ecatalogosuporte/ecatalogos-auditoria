@@ -385,13 +385,15 @@ test('renaming retains usage; rejecting or replacing an image clears approval an
     await page.locator('[data-choice="approved"]').click();
     await page.locator('[name="isUsed"]').check();
     await page.locator('[name="usedIn"]').fill('Catálogo');
+    await page.locator('[name="usageTools"][value="b2b"]').check();
     await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
-    await expect(page.locator('.usage-status')).toContainText('Catálogo');
+    await expect(page.locator('.usage-status')).toContainText('B2B');
   };
   await page.locator('#openReview').click(); await use();
   await page.locator('[data-choice="rejected"]').click();
   await expect(page.locator('[name="isUsed"]')).toBeDisabled();
   expect(backend.pairs[0].is_used).toBe(false);
+  expect(backend.pairs[0].usage_tools).toEqual([]);
   expect(backend.pairs[0].used_in).toBe('');
   await use();
   await page.locator('#backToStudio').click();
@@ -400,13 +402,75 @@ test('renaming retains usage; rejecting or replacing an image clears approval an
   await page.locator('#savePair').click();
   await expect(page.locator('#modal')).toBeHidden();
   expect(backend.pairs[0].is_used).toBe(true);
+  expect(backend.pairs[0].usage_tools).toEqual(['b2b']);
   await page.locator('[data-action="edit"]').click();
   await page.locator('#afterFile').setInputFiles(logo.pathname);
   await page.locator('#savePair').click();
   await expect(page.locator('#modal')).toBeHidden();
   expect(backend.pairs[0].review_status).toBe(null);
   expect(backend.pairs[0].is_used).toBe(false);
+  expect(backend.pairs[0].usage_tools).toEqual([]);
   expect(backend.pairs[0].used_in).toBe('');
+});
+
+test('only removing an existing review asks for confirmation and cancelling preserves its data', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  const dialogs = [];
+  let acceptRemoval = false;
+  page.on('dialog', async dialog => {
+    expect(dialog.type()).toBe('confirm');
+    dialogs.push(dialog.message());
+    if (acceptRemoval) await dialog.accept(); else await dialog.dismiss();
+  });
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click();
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('✓ Aprovado');
+  expect(dialogs).toEqual([]);
+  await page.locator('[name="isUsed"]').check();
+  await page.locator('[name="usedIn"]').fill('Carrossel');
+  await page.locator('[name="usageTools"][value="b2b"]').check();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.usage-status')).toContainText('B2B');
+  const saved = structuredClone(backend.pairs[0]), requests = backend.dataRequests;
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  expect(dialogs).toHaveLength(1);
+  expect(dialogs[0]).toContain('remover a aprovação');
+  expect(backend.dataRequests).toBe(requests);
+  expect(backend.pairs[0]).toEqual(saved);
+  await expect(page.locator('.review-decision')).toHaveText('✓ Aprovado');
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Carrossel');
+  await expect(page.locator('[name="usageTools"][value="b2b"]')).toBeChecked();
+  acceptRemoval = true;
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('Aguardando avaliação');
+  expect(backend.pairs[0]).toMatchObject({ review_status: null, reviewed_at: null, is_used: false, used_in: '', usage_tools: [] });
+
+  await page.locator('[data-choice="rejected"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('✕ Reprovado');
+  expect(dialogs).toHaveLength(2);
+  acceptRemoval = false;
+  const rejected = structuredClone(backend.pairs[0]);
+  await page.locator('[data-choice="rejected"]').click();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  expect(dialogs).toHaveLength(3);
+  expect(dialogs[2]).toContain('remover a reprovação');
+  expect(backend.pairs[0]).toEqual(rejected);
+  await expect(page.locator('.review-decision')).toHaveText('✕ Reprovado');
+  acceptRemoval = true;
+  await page.locator('[data-choice="rejected"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('Aguardando avaliação');
+  expect(backend.pairs[0].review_status).toBe(null);
+  expect(dialogs).toHaveLength(4);
+
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('✓ Aprovado');
+  await page.locator('[data-choice="rejected"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('✕ Reprovado');
+  await page.locator('[data-choice="approved"]').click();
+  await expect(page.locator('.review-decision')).toHaveText('✓ Aprovado');
+  expect(dialogs).toHaveLength(4);
 });
 
 test('databases awaiting migration keep the gallery and approvals working with usage disabled', async ({ page, context }) => {
@@ -503,4 +567,86 @@ test('saving usage shows feedback and releases controls without losing the draft
   await expect(page.getByRole('button', { name: 'Salvar uso', exact: true })).toBeEnabled();
   await expect(page.locator('[name="usedIn"]')).toHaveValue('Catálogo');
   await expect(page.locator('.usage-status')).toHaveText('Aprovada · Não usada');
+});
+
+
+test('review saves all seven tool combinations, restores them from backup and filters by tool', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click();
+  await expect(page.locator('[name="usageTools"]').first()).toBeDisabled();
+  await page.locator('[data-choice="approved"]').click();
+  await page.locator('[name="isUsed"]').check();
+  const tools = [
+    { id: 'forca-de-vendas', label: 'Força de vendas' },
+    { id: 'b2b', label: 'B2B' },
+    { id: 'atacado-de-modas', label: 'Atacado de modas' }
+  ];
+  for (let mask = 1; mask < 8; mask++) {
+    for (const [index, tool] of tools.entries()) {
+      await page.locator(`[name="usageTools"][value="${tool.id}"]`).setChecked(Boolean(mask & (1 << index)));
+    }
+    await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+    const selected = tools.filter((_, index) => mask & (1 << index));
+    await expect(page.locator('.usage-status')).toHaveText(`Aprovada · Usada em ${selected.map(t => t.label).join(', ')}`);
+    expect(backend.pairs[0].usage_tools).toEqual(selected.map(t => t.id));
+    expect(backend.pairs[0].used_in).toBe('');
+    if ([1, 3, 7].includes(mask)) {
+      await page.reload();
+      await expect(page.locator('[name="isUsed"]')).toBeChecked();
+      for (const tool of tools) await expect(page.locator(`[name="usageTools"][value="${tool.id}"]`)).toBeChecked({ checked: selected.includes(tool) });
+    }
+  }
+  expect(backend.uploads).toBe(2);
+  await page.locator('[name="usedIn"]').fill('Carrossel de perfumes');
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('#loadingOverlay')).toBeHidden();
+  expect(backend.pairs[0].used_in).toBe('Carrossel de perfumes');
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Carrossel de perfumes');
+  await page.locator('.review-usage').screenshot({ path: 'test-results/usage-tools-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.review-usage').screenshot({ path: 'test-results/usage-tools-mobile.png' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator('#backToStudio').click();
+  const backup = await downloaded(page, '#downloadBackup');
+  await page.locator('#archiveFile').setInputFiles({ name: backup.name, mimeType: 'application/zip', buffer: backup.bytes });
+  await expect(page.locator('.project')).toHaveCount(2);
+  await page.locator('#openReview').click();
+  for (const tool of tools) await expect(page.locator(`[name="usageTools"][value="${tool.id}"]`)).toBeChecked();
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Carrossel de perfumes');
+  await page.locator('#reviewFilter').selectOption('tool:forca-de-vendas');
+  await expect(page.locator('.review-pair')).toHaveCount(1);
+  await page.locator('[name="usageTools"][value="forca-de-vendas"]').uncheck();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.review-pair')).toHaveCount(0);
+  await page.locator('#reviewFilter').selectOption('tool:b2b');
+  await expect(page.locator('.review-pair')).toHaveCount(1);
+  await page.locator('[name="isUsed"]').uncheck();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.review-pair')).toHaveCount(0);
+  await page.locator('#reviewFilter').selectOption('approved-unused');
+  await expect(page.locator('.usage-status')).toHaveText('Aprovada · Não usada');
+  await expect(page.locator('[name="usageTools"]').first()).toBeDisabled();
+  expect(backend.pairs.at(-1).usage_tools).toEqual([]);
+});
+
+test('before tools are enabled the existing usage description keeps working and can be retained when enabling tools', async ({ page, context }) => {
+  const backend = await mockSupabase(context); backend.usageToolsSupported = false;
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click();
+  await page.locator('[data-choice="approved"]').click();
+  await page.locator('[name="isUsed"]').check();
+  await expect(page.locator('[name="usageTools"]').first()).toBeDisabled();
+  await page.locator('[name="usedIn"]').fill('Carrossel do site já cadastrado');
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.usage-status')).toContainText('Carrossel do site já cadastrado');
+  expect(Object.hasOwn(backend.pairs[0], 'usage_tools')).toBe(false);
+  backend.usageToolsSupported = true;
+  await page.reload();
+  await page.locator('[name="usageTools"][value="b2b"]').check();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.usage-status')).toContainText('B2B');
+  await expect(page.locator('[name="usedIn"]')).toHaveValue('Carrossel do site já cadastrado');
+  expect(backend.pairs[0].usage_tools).toEqual(['b2b']);
 });

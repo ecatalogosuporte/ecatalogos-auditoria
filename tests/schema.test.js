@@ -31,12 +31,16 @@ test('SQL schema enforces account isolation, private image access, atomic orderi
     await db.exec(schema); // Re-running setup must be safe.
     // Simulate an existing deployment before the usage fields were introduced.
     await db.exec(`alter table studio_pairs drop constraint studio_pairs_usage_valid;
-      alter table studio_pairs drop column is_used, drop column used_in;
+      alter table studio_pairs drop column is_used, drop column used_in, drop column usage_tools;
       insert into studio_projects values ('legacy', '${owner}', 'Coleção antiga', 1);
       insert into studio_pairs (id, owner_id, project_id, name, created_at) values ('legacy-pair', '${owner}', 'legacy', 'Produto antigo', 1);`);
     const migration = await readFile(new URL('../supabase/migrations/20261112_add_image_usage.sql', import.meta.url), 'utf8');
     await db.exec(migration); await db.exec(migration);
     assert.deepEqual((await db.query("select is_used, used_in from studio_pairs where id = 'legacy-pair'")).rows[0], { is_used: false, used_in: '' });
+    await db.query("update studio_pairs set review_status = 'approved', before_path = $1, after_path = $2, is_used = true, used_in = 'Carrossel já cadastrado' where id = 'legacy-pair'", [`${owner}/before.png`, `${owner}/after.png`]);
+    const toolsMigration = await readFile(new URL('../supabase/migrations/20261113_add_usage_tools.sql', import.meta.url), 'utf8');
+    await db.exec(toolsMigration); await db.exec(toolsMigration);
+    assert.deepEqual((await db.query("select is_used, used_in, usage_tools from studio_pairs where id = 'legacy-pair'")).rows[0], { is_used: true, used_in: 'Carrossel já cadastrado', usage_tools: [] });
     await db.exec(schema);
     await db.exec("delete from studio_projects where id = 'legacy'");
     const bucket = (await db.query("select * from storage.buckets where id = 'studio-images'")).rows[0];
@@ -51,9 +55,20 @@ test('SQL schema enforces account isolation, private image access, atomic orderi
     await db.query("update studio_pairs set review_status = 'approved', before_path = $1, after_path = $2 where id = 'first'", [`${owner}/before.png`, `${owner}/after.png`]);
     await assert.rejects(db.query("update studio_pairs set is_used = true, used_in = '   ' where id = 'first'"), /check constraint/);
     await db.query("update studio_pairs set is_used = true, used_in = 'Catálogo de verão' where id = 'first'");
+    const tools = ['forca-de-vendas', 'b2b', 'atacado-de-modas'];
+    for (let mask = 1; mask < 8; mask++) {
+      const selected = tools.filter((_, i) => mask & (1 << i));
+      const literal = `array[${selected.map(value => `'${value}'`).join(',')}]::text[]`;
+      await db.query(`update studio_pairs set is_used = true, used_in = '', usage_tools = ${literal} where id = 'first'`);
+      assert.deepEqual((await db.query("select usage_tools from studio_pairs where id = 'first'")).rows[0].usage_tools, selected);
+    }
+    await assert.rejects(db.query("update studio_pairs set usage_tools = array['unknown'] where id = 'first'"), /check constraint/);
+    await assert.rejects(db.query("update studio_pairs set usage_tools = array['b2b', 'b2b'] where id = 'first'"), /check constraint/);
+    await assert.rejects(db.query("update studio_pairs set usage_tools = array[null]::text[] where id = 'first'"), /check constraint/);
+    await assert.rejects(db.query("update studio_pairs set usage_tools = '{}' where id = 'first'"), /check constraint/);
     await assert.rejects(db.query("update studio_pairs set review_status = 'rejected' where id = 'first'"), /check constraint/);
     await assert.rejects(db.query("update studio_pairs set review_status = null where id = 'first'"), /check constraint/);
-    await db.query("update studio_pairs set review_status = 'rejected', is_used = false, used_in = '' where id = 'first'");
+    await db.query("update studio_pairs set review_status = 'rejected', is_used = false, used_in = '', usage_tools = '{}' where id = 'first'");
     await assert.rejects(db.query("update studio_projects set owner_id = $1 where id = 'project'", [stranger]), /row-level security/);
     await assert.rejects(db.query("update studio_pairs set before_path = $1 where id = 'first'", [`${stranger}/private.png`]), /check constraint/);
     await db.query("insert into storage.objects values ('image', 'studio-images', $1)", [`${owner}/project/original.png`]);

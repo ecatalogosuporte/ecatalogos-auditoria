@@ -1,3 +1,5 @@
+import { normalizeUsageTools } from './usage-tools.js';
+
 export const BUCKET = 'studio-images';
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const TABLES = { projects: 'studio_projects', pairs: 'studio_pairs' };
@@ -28,6 +30,7 @@ export class CloudStore {
     this.onWarning = onWarning;
     this.onProgress = onProgress;
     this.usageSupported = null;
+    this.usageToolsSupported = null;
   }
 
   query(store) { return this.client.from(TABLES[store]); }
@@ -50,6 +53,19 @@ export class CloudStore {
     return data.map(p => ({ id: p.id, name: p.name, created: p.created_at }));
   }
 
+  async supportsUsageTools() {
+    if (this.usageToolsSupported !== null) return this.usageToolsSupported;
+    if (!await this.supportsUsage()) return (this.usageToolsSupported = false);
+    const result = await this.query('pairs').select('usage_tools').eq('owner_id', this.userId).limit(1);
+    if (result.error && ['42703', 'PGRST204'].includes(result.error.code) && /usage_tools/.test(result.error.message)) {
+      this.usageToolsSupported = false;
+    } else {
+      check(result);
+      this.usageToolsSupported = true;
+    }
+    return this.usageToolsSupported;
+  }
+
   async pairRows(projectId, columns = '*') {
     return rows(() => this.query('pairs').select(columns).eq('owner_id', this.userId)
       .eq('project_id', projectId).order('position').order('id'));
@@ -67,6 +83,7 @@ export class CloudStore {
 
   async getPairs(projectId) {
     await this.supportsUsage();
+    await this.supportsUsageTools();
     const data = await this.pairRows(projectId);
     const result = new Array(data.length);
     let index = 0, completed = 0;
@@ -82,7 +99,8 @@ export class CloudStore {
           created: row.created_at, beforeBlob, afterBlob,
           beforeName: row.before_name, afterName: row.after_name,
           reviewStatus: row.review_status, reviewedAt: row.reviewed_at,
-          isUsed: row.is_used || false, usedIn: row.used_in || ''
+          isUsed: row.is_used || false, usedIn: row.used_in || '',
+          usageTools: normalizeUsageTools(row.usage_tools)
         };
         this.onProgress({ phase: 'download', completed: ++completed, total: data.length });
       }
@@ -112,10 +130,13 @@ export class CloudStore {
     }
     const previous = await this.previous(record.id);
     const usageSupported = await this.supportsUsage();
+    const toolsSupported = await this.supportsUsageTools();
     const isUsed = Boolean(record.isUsed), usedIn = isUsed ? String(record.usedIn || '').trim() : '';
+    const tools = isUsed ? normalizeUsageTools(record.usageTools) : [];
     if (isUsed && !usageSupported) throw new Error('O registro de uso precisa ser ativado pelo responsável pela Auditoria.');
-    if (isUsed && (record.reviewStatus !== 'approved' || !usedIn || usedIn.length > 300)) {
-      throw new Error('Para marcar como usada, aprove a imagem e informe onde ela está sendo utilizada (até 300 caracteres).');
+    if (tools.length && !toolsSupported) throw new Error('As ferramentas de uso precisam ser ativadas pelo responsável pela Auditoria.');
+    if (isUsed && (record.reviewStatus !== 'approved' || (!usedIn && !tools.length) || usedIn.length > 300)) {
+      throw new Error('Para marcar como usada, aprove a imagem e selecione uma ferramenta ou informe onde ela está sendo utilizada (até 300 caracteres).');
     }
     const uploaded = [];
     const uploadTotal = ['before', 'after'].filter(slot => {
@@ -130,6 +151,7 @@ export class CloudStore {
       review_status: record.reviewStatus || null, reviewed_at: record.reviewedAt || null
     };
     if (usageSupported) Object.assign(next, { is_used: isUsed, used_in: usedIn });
+    if (toolsSupported) next.usage_tools = tools;
     try {
       for (const slot of ['before', 'after']) {
         const blob = record[`${slot}Blob`], oldPath = previous?.[`${slot}_path`];
@@ -167,18 +189,23 @@ export class CloudStore {
     check(await this.client.rpc('studio_swap_pairs', { first_id: firstId, second_id: secondId }));
   }
 
-  async setUsage(id, isUsed, usedIn) {
+  async setUsage(id, isUsed, usedIn, usageTools = []) {
     if (!await this.supportsUsage()) throw new Error('O registro de uso precisa ser ativado pelo responsável pela Auditoria.');
+    const toolsSupported = await this.supportsUsageTools();
+    const tools = isUsed ? normalizeUsageTools(usageTools) : [];
     const location = isUsed ? String(usedIn || '').trim() : '';
-    if (isUsed && (!location || location.length > 300)) throw new Error('Informe onde a imagem está sendo usada (até 300 caracteres).');
+    if (tools.length && !toolsSupported) throw new Error('As ferramentas de uso precisam ser ativadas pelo responsável pela Auditoria.');
+    if (isUsed && ((!location && !tools.length) || location.length > 300)) throw new Error('Informe onde a imagem está sendo usada ou selecione uma ferramenta (até 300 caracteres).');
+    const fields = { is_used: Boolean(isUsed), used_in: location };
+    if (toolsSupported) fields.usage_tools = tools;
     // Update only usage fields so edits from a second reviewer do not overwrite images or names.
-    const result = await this.query('pairs').update({ is_used: Boolean(isUsed), used_in: location })
+    const result = await this.query('pairs').update(fields)
       .eq('owner_id', this.userId).eq('id', id).eq('review_status', 'approved')
-      .select('id,is_used,used_in').single();
+      .select(toolsSupported ? 'id,is_used,used_in,usage_tools' : 'id,is_used,used_in').single();
     if (result.error?.code === 'PGRST116') throw new Error('A imagem precisa estar aprovada. Atualize a revisão e tente novamente.');
     const saved = check(result);
     const cached = this.records.get(id);
-    if (cached) this.records.set(id, { ...cached, is_used: saved.is_used, used_in: saved.used_in });
-    return { isUsed: saved.is_used, usedIn: saved.used_in };
+    if (cached) this.records.set(id, { ...cached, ...fields });
+    return { isUsed: saved.is_used, usedIn: saved.used_in, usageTools: normalizeUsageTools(saved.usage_tools) };
   }
 }

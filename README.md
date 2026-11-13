@@ -47,13 +47,15 @@ O nome legado `VITE_SUPABASE_ANON_KEY` também é aceito. Use apenas a chave pú
 
 ## Registrar uso das imagens na revisão
 
-Depois de aprovar uma imagem, marque **Usado**, preencha **Onde está sendo usada?** (por exemplo, “Catálogo de verão / Instagram”) e clique em **Salvar uso**. A revisão passa a exibir **Aprovada · Não usada** ou **Aprovada · Usada em …**, com contadores e os filtros **Aprovadas — não usadas** e **Aprovadas — usadas**.
+Depois de aprovar uma imagem, marque **Usado** e selecione as ferramentas **Força de vendas**, **B2B** e/ou **Atacado de modas**. São opções independentes: a imagem pode estar em uma, duas ou nas três ferramentas ao mesmo tempo. Clique em **Salvar uso** para registrar a seleção.
 
-Em projetos Supabase que já estavam configurados, execute uma vez [`supabase/migrations/20261112_add_image_usage.sql`](supabase/migrations/20261112_add_image_usage.sql) no **SQL Editor**. Ele adiciona somente os campos de uso e a validação correspondente; os registros antigos começam como não usados. O script pode ser repetido. Em instalações novas, `supabase/schema.sql` já inclui essa estrutura.
+O campo **Onde está sendo usada?** continua disponível para detalhar o local (por exemplo, “Carrossel de perfumes do site”). Ele é opcional quando pelo menos uma ferramenta estiver marcada; também é possível registrar somente o texto. A revisão exibe **Aprovada · Não usada** ou **Aprovada · Usada em …**, com contadores, filtros para usadas/não usadas e um filtro para cada ferramenta.
 
-A chave pública do app não tem permissão para alterar tabelas, então a atualização precisa ser executada pelo responsável pelo Supabase. Depois, clique em **Atualizar** no app e publique o código atualizado na Vercel. Até executar o SQL, a galeria e as aprovações continuam disponíveis, e os controles de uso ficam desabilitados.
+Em projetos Supabase que já estavam configurados, execute [`supabase/migrations/20261113_add_usage_tools.sql`](supabase/migrations/20261113_add_usage_tools.sql) no **SQL Editor**. Ele adiciona os campos necessários e atualiza a validação, preservando os locais de uso existentes. As ferramentas começam desmarcadas e devem ser selecionadas pelo revisor. O script pode ser repetido e também atende a projetos que ainda não tinham os campos de uso. Em instalações novas, `supabase/schema.sql` já inclui essa estrutura.
 
-O uso é preservado em backups `.ecproj` e ao renomear um produto. Substituir uma imagem, remover sua aprovação ou reprovar o comparativo limpa o registro de uso; a nova imagem precisa ser aprovada e ter seu uso registrado novamente. O salvamento de uso altera somente esses campos, preservando nomes e imagens editados por outro revisor. Os locais informados podem ter até 300 caracteres.
+A chave pública do app não tem permissão para alterar tabelas, então a atualização precisa ser executada pelo responsável pelo Supabase. Depois, publique o código atualizado na Vercel e recarregue a página. Até executar o SQL, o registro de uso por texto continua funcionando nos projetos que já o tinham habilitado; somente as novas ferramentas ficam desabilitadas. Se os campos básicos de uso também estiverem ausentes, todos os controles de uso ficam desabilitados, mas a galeria e as aprovações continuam disponíveis.
+
+O uso, as ferramentas e os detalhes são preservados em backups `.ecproj` e ao renomear um produto. Substituir uma imagem, remover sua aprovação ou reprovar o comparativo limpa o registro de uso; a nova imagem precisa ser aprovada e ter seu uso registrado novamente. O salvamento de uso altera somente esses campos, preservando nomes e imagens editados por outro revisor. Os locais informados podem ter até 300 caracteres.
 
 ## Login fictício `ecatalogos@admin`
 

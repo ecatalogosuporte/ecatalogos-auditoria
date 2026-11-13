@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CloudStore, MAX_IMAGE_BYTES } from '../cloud-store.js';
 
-function setup(usageSupported = true) {
+function setup(usageSupported = true, toolsSupported = usageSupported) {
   const objects = new Map(), metadata = new Map(), uploads = [], removals = [];
   let writeError = false, uploadError = false;
   const client = {
@@ -19,7 +19,7 @@ function setup(usageSupported = true) {
         if (writeError) return { error: { message: 'Database failed' } };
         metadata.set(row.id, { ...row }); return { data: null };
       },
-      select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: null }), limit: async () => usageSupported ? ({ data: [] }) : ({ error: { code: '42703', message: 'column studio_pairs.is_used does not exist' } }) })
+      select: columns => ({ eq() { return this; }, maybeSingle: async () => ({ data: null }), limit: async () => !usageSupported ? ({ error: { code: '42703', message: 'column studio_pairs.is_used does not exist' } }) : columns === 'usage_tools' && !toolsSupported ? ({ error: { code: '42703', message: 'column studio_pairs.usage_tools does not exist' } }) : ({ data: [] }) })
     })
   };
   const store = new CloudStore(client, 'owner');
@@ -91,4 +91,23 @@ test('existing databases keep saving normal comparisons while usage waits for mi
   assert.equal(uploads.length, 2);
   await assert.rejects(store.setUsage(record.id, true, 'Catálogo'), /precisa ser ativado/);
   await assert.rejects(store.put('pairs', { ...record, reviewStatus: 'approved', isUsed: true, usedIn: 'Catálogo' }), /precisa ser ativado/);
+});
+
+
+test('tool-only usage stores every selected tool once without requiring a description', async () => {
+  const { store, metadata } = setup();
+  await store.put('pairs', { ...pair(), reviewStatus: 'approved', isUsed: true, usedIn: '', usageTools: ['b2b', 'forca-de-vendas', 'b2b', 'atacado-de-modas'] });
+  assert.deepEqual(metadata.get('pair').usage_tools, ['forca-de-vendas', 'b2b', 'atacado-de-modas']);
+  assert.equal(metadata.get('pair').used_in, '');
+  await assert.rejects(store.put('pairs', { ...pair(), reviewStatus: 'approved', isUsed: true, usedIn: '', usageTools: [] }), /selecione uma ferramenta/);
+});
+
+test('the existing usage fields keep working before the tools migration and tool data is never silently discarded', async () => {
+  const { store, metadata } = setup(true, false);
+  const record = { ...pair(), reviewStatus: 'approved', isUsed: true, usedIn: 'Carrossel do site' };
+  await store.put('pairs', record);
+  assert.equal(metadata.get('pair').used_in, record.usedIn);
+  assert.equal(Object.hasOwn(metadata.get('pair'), 'usage_tools'), false);
+  await assert.rejects(store.put('pairs', { ...record, usageTools: ['b2b'] }), /ferramentas de uso precisam ser ativadas/);
+  assert.equal(metadata.get('pair').used_in, record.usedIn);
 });

@@ -5,7 +5,7 @@ export const defaultIdentity = { email: 'studio@example.com', login: 'studio@exa
 export async function mockSupabase(context, identity = defaultIdentity, sharedBackend = null) {
   const owner = '11111111-1111-4111-8111-111111111111';
   const user = { id: owner, aud: 'authenticated', role: 'authenticated', email: identity.email, app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
-  const backend = sharedBackend || { sessions: new Map(), nextSession: 0, usageSupported: true, rejectUsage: false, loginDelay: null, uploadDelay: null, usageDelay: null, uploadRequests: 0, projects: [], pairs: [], objects: new Map(), uploads: 0, dataRequests: 0, downloadRequests: 0, downloadDelay: null, rejectLogin: false };
+  const backend = sharedBackend || { sessions: new Map(), nextSession: 0, usageSupported: true, usageToolsSupported: true, rejectUsage: false, loginDelay: null, uploadDelay: null, usageDelay: null, uploadRequests: 0, projects: [], pairs: [], objects: new Map(), uploads: 0, dataRequests: 0, downloadRequests: 0, downloadDelay: null, rejectLogin: false };
   const encode = data => Buffer.from(JSON.stringify(data)).toString('base64url');
   const session = previousRefresh => {
     if (previousRefresh) backend.sessions.delete(previousRefresh);
@@ -49,6 +49,9 @@ export async function mockSupabase(context, identity = defaultIdentity, sharedBa
       const table = url.pathname.endsWith('studio_projects') ? backend.projects : backend.pairs;
       if (!backend.usageSupported && url.searchParams.get('select')?.includes('is_used')) {
         return reply({ code: '42703', message: 'column studio_pairs.is_used does not exist' }, 400);
+      }
+      if (!backend.usageToolsSupported && url.searchParams.get('select')?.includes('usage_tools')) {
+        return reply({ code: '42703', message: 'column studio_pairs.usage_tools does not exist' }, 400);
       }
       if (request.method() === 'POST') {
         const record = request.postDataJSON(), index = table.findIndex(p => p.id === record.id);

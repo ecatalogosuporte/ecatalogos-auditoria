@@ -371,3 +371,14 @@ button.is-loading::before{content:'';display:inline-block;width:13px;height:13px
 @media(max-width:620px){.loading-overlay{padding:18px}.loading-card{padding:24px}.loading-card h2{font-size:17px}}
 @media(prefers-reduced-motion:reduce){.loading-card,.loading-orbit span,.loading-progress,.image-loading::before,.image-loading::after,button.is-loading::before{animation:none!important}.loading-progress::-webkit-progress-value,.compare-image img,.review-photo img,.zone-image{transition:none!important}}
 @media print{.loading-overlay{display:none!important}}
+
+/* A usage record can belong to several tools at the same time. */
+.usage-tools{min-width:0;border:0;border-top:1px solid #e2eaf2;padding:12px 0 0;margin:15px 0 0}
+.usage-tools legend{padding:0 8px 0 0;font-size:11px;color:#61788a;font-weight:650}
+.usage-tools-options{display:flex;flex-wrap:wrap;gap:9px}
+.usage-tool-option{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #d7e4f0;background:#fff;border-radius:8px;font-size:12px;color:#536e80;cursor:pointer;min-height:39px}
+.usage-tool-option input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.usage-tool-option:has(input:checked){border-color:#7fc7ff;background:#eaf5ff;color:#075e9e;font-weight:650}
+.usage-tools:disabled .usage-tool-option{opacity:.55;cursor:not-allowed}
+@media(max-width:700px){.usage-tools-options{gap:8px}.usage-tool-option{flex:1 1 135px}}
+@media print{.usage-tools{display:none}}

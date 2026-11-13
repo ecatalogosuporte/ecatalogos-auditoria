@@ -43,8 +43,12 @@ Os botões “Baixar antes” e “Baixar depois” baixam cada imagem original
 separadamente, na galeria e na revisão, sem alterar seu arquivo.
 
 USO DAS IMAGENS NA REVISÃO
-Depois de aprovar uma imagem, marque “Usado”, informe onde ela é utilizada
-e clique em “Salvar uso”. Há filtros para aprovadas usadas e não usadas.
+Depois de aprovar uma imagem, marque “Usado” e selecione “Força de vendas”,
+“B2B” e/ou “Atacado de modas”. Você pode marcar uma, duas ou as três.
+O campo de local continua disponível para detalhes e é opcional quando
+alguma ferramenta estiver marcada. Clique em “Salvar uso”. Há filtros
+por ferramenta e para aprovadas usadas e não usadas.
 Para habilitar no banco já existente, execute no SQL Editor do Supabase:
-  supabase/migrations/20261112_add_image_usage.sql
-Depois, atualize o app e publique a versão atualizada na Vercel.
+  supabase/migrations/20261113_add_usage_tools.sql
+O script preserva os locais de uso já registrados e pode ser repetido.
+Depois, publique a versão atualizada na Vercel e recarregue o app.

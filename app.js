@@ -4,6 +4,7 @@ import { CloudStore, MAX_IMAGE_BYTES } from './cloud-store.js';
 import { cloudClient, authMessage } from './auth.js';
 import { loginEmail, displayLogin, isStudioLogin } from './login-identity.js';
 import { setLoading, loadingStep, watchImage, watchImages } from './loading-ui.js';
+import { USAGE_TOOLS, normalizeUsageTools, usageToolLabels } from './usage-tools.js';
 'use strict';
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -81,7 +82,7 @@ function pasteImage(event){
 
 async function savePair(e){e.preventDefault();const name=$('productName').value.trim();if(!name)return toast('Informe o nome do produto.',true);if(!state.modalBlobs.before&&!state.modalBlobs.after)return toast('Adicione pelo menos uma imagem.',true);const old=state.editing?state.pairs.find(p=>p.id===state.editing):null;
  const record={id:old?.id||uid(),projectId:state.projectId,name,order:old?.order??(state.pairs.length?Math.max(...state.pairs.map(p=>p.order))+1:0),created:old?.created||Date.now(),beforeBlob:state.modalBlobs.before,afterBlob:state.modalBlobs.after,beforeName:state.modalBlobs.before?.name||old?.beforeName||'',afterName:state.modalBlobs.after?.name||old?.afterName||'',reviewStatus:old&&state.modalBlobs.before===old.beforeBlob&&state.modalBlobs.after===old.afterBlob?(old.reviewStatus||null):null,reviewedAt:old&&state.modalBlobs.before===old.beforeBlob&&state.modalBlobs.after===old.afterBlob?(old.reviewedAt||null):null};
- const unchanged=old&&state.modalBlobs.before===old.beforeBlob&&state.modalBlobs.after===old.afterBlob;record.isUsed=Boolean(unchanged&&old.reviewStatus==='approved'&&old.isUsed);record.usedIn=record.isUsed?(old.usedIn||''):'';
+ const unchanged=old&&state.modalBlobs.before===old.beforeBlob&&state.modalBlobs.after===old.afterBlob;record.isUsed=Boolean(unchanged&&old.reviewStatus==='approved'&&old.isUsed);record.usedIn=record.isUsed?(old.usedIn||''):'';record.usageTools=record.isUsed?normalizeUsageTools(old.usageTools):[];
  await put('pairs',record);closeModal();await refresh();toast(old?'Comparativo atualizado.':'Comparativo adicionado.');}
 async function deletePair(id){const p=state.pairs.find(p=>p.id===id);if(!p||!confirm(`Excluir “${p.name}”?`))return;await del('pairs',id);await refresh();toast('Comparativo excluído.');}
 async function movePair(id,delta){const idx=state.pairs.findIndex(p=>p.id===id);const j=idx+delta;if(idx<0||j<0||j>=state.pairs.length)return;await state.db.movePairs(id,state.pairs[j].id);await refresh();}
@@ -108,14 +109,14 @@ function downloadOriginal(id,slot) {
 }
 async function exportOne(id){if(!canUseStudio())return;const row=state.pairs.find(p=>p.id===id);if(!row?.beforeBlob||!row?.afterBlob)return toast('Este comparativo precisa das duas imagens.',true);busy(true,'Preparando imagem 1068 × 1473...');try{const blob=await comparisonPNG(row,state.pairs.indexOf(row)+1);download(blob,`${String(state.pairs.indexOf(row)+1).padStart(2,'0')}_${slug(row.name)}_antes-depois_1068x1473.png`);toast('PNG exportado com sucesso.');}catch(e){toast('Não foi possível exportar: '+e.message,true);}finally{busy(false);}}
 async function exportAll(){if(!canUseStudio())return;const ready=state.pairs.filter(p=>p.beforeBlob&&p.afterBlob);if(!ready.length)return toast('Adicione pelo menos um par completo para exportar.',true);busy(true,`Preparando 0 de ${ready.length} imagens...`);try{const items=[];for(let i=0;i<ready.length;i++){const row=ready[i],num=state.pairs.indexOf(row)+1; loadingStep('Gerando comparativos…',`${i+1} de ${ready.length} imagens (1068 × 1473 px)`,i,ready.length);items.push({name:`comparativos/${String(num).padStart(2,'0')}_${slug(row.name)}_antes-depois.png`,blob:await comparisonPNG(row,num)});await new Promise(r=>setTimeout(r,0));}items.push({name:'LEIA-ME.txt',blob:new Blob(['eCatalogos Auditoria\nFormato de cada PNG: 1068 x 1473 pixels\nProjeto: '+current().name+'\n'],{type:'text/plain'})});loadingStep('Montando arquivo ZIP…','Reunindo os comparativos para baixar.');download(await makeZip(items),`${slug(current().name)}_comparativos.zip`);toast(`${ready.length} comparativos exportados em ZIP.`);}catch(e){toast('Falha na exportação: '+e.message,true);}finally{busy(false);}}
-async function exportBackup(){if(!canUseStudio())return;if(!state.pairs.length)return toast('Adicione algum produto antes de criar um backup.',true);busy(true,'Preparando backup com as imagens originais...');try{const files=[],manifest={kind:'ecatalogos-image-studio',appName:'eCatalogos Auditoria',version:2,projectName:current().name,exportedAt:new Date().toISOString(),items:[]};for(const [index,p] of state.pairs.entries()){const id=String(index+1).padStart(3,'0'),it={name:p.name,order:index,before:null,after:null,reviewStatus:p.reviewStatus||null,reviewedAt:p.reviewedAt||null,isUsed:Boolean(p.isUsed),usedIn:p.usedIn||''};for(const slot of ['before','after']){const blob=p[slot+'Blob'];if(!blob)continue;const path=`imagens/${id}_${slot==='before'?'antes':'depois'}.${extFor(blob,p[slot+'Name'])}`;files.push({name:path,blob});it[slot]=path;}manifest.items.push(it);}files.unshift({name:'projeto.json',blob:new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'})});download(await makeZip(files),`${slug(current().name)}_backup.ecproj`);toast('Backup salvo. Guarde o arquivo para recuperar seu trabalho.');}catch(e){toast('Não foi possível exportar o backup: '+e.message,true);}finally{busy(false);}}
+async function exportBackup(){if(!canUseStudio())return;if(!state.pairs.length)return toast('Adicione algum produto antes de criar um backup.',true);busy(true,'Preparando backup com as imagens originais...');try{const files=[],manifest={kind:'ecatalogos-image-studio',appName:'eCatalogos Auditoria',version:2,projectName:current().name,exportedAt:new Date().toISOString(),items:[]};for(const [index,p] of state.pairs.entries()){const id=String(index+1).padStart(3,'0'),it={name:p.name,order:index,before:null,after:null,reviewStatus:p.reviewStatus||null,reviewedAt:p.reviewedAt||null,isUsed:Boolean(p.isUsed),usedIn:p.usedIn||'',usageTools:normalizeUsageTools(p.usageTools)};for(const slot of ['before','after']){const blob=p[slot+'Blob'];if(!blob)continue;const path=`imagens/${id}_${slot==='before'?'antes':'depois'}.${extFor(blob,p[slot+'Name'])}`;files.push({name:path,blob});it[slot]=path;}manifest.items.push(it);}files.unshift({name:'projeto.json',blob:new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'})});download(await makeZip(files),`${slug(current().name)}_backup.ecproj`);toast('Backup salvo. Guarde o arquivo para recuperar seu trabalho.');}catch(e){toast('Não foi possível exportar o backup: '+e.message,true);}finally{busy(false);}}
 async function readZip(file){const array=await file.arrayBuffer(),data=new Uint8Array(array),v=new DataView(array),dec=new TextDecoder();let end=-1;for(let i=array.byteLength-22;i>=Math.max(0,array.byteLength-65557);i--){if(v.getUint32(i,true)===0x06054b50){end=i;break;}}if(end<0)throw Error('ZIP inválido ou incompleto.');const count=v.getUint16(end+10,true),start=v.getUint32(end+16,true),entries=[];let pos=start;for(let i=0;i<count;i++){if(v.getUint32(pos,true)!==0x02014b50)throw Error('Diretório ZIP inválido.');const method=v.getUint16(pos+10,true),size=v.getUint32(pos+20,true),nl=v.getUint16(pos+28,true),el=v.getUint16(pos+30,true),cl=v.getUint16(pos+32,true),offset=v.getUint32(pos+42,true),name=dec.decode(data.subarray(pos+46,pos+46+nl));pos+=46+nl+el+cl;if(name.endsWith('/'))continue;entries.push({name,method,size,offset});}if(entries.length>1500)throw Error('O ZIP contém arquivos demais.');const map=new Map();for(const e of entries){const lp=e.offset;if(v.getUint32(lp,true)!==0x04034b50)throw Error('Arquivo ZIP com cabeçalho inválido.');const p=lp+30+v.getUint16(lp+26,true)+v.getUint16(lp+28,true),payload=data.slice(p,p+e.size);let blob;if(e.method===0)blob=new Blob([payload]);else if(e.method===8){if(typeof DecompressionStream==='undefined')throw Error('Atualize para Chrome/Edge para importar ZIPs compactados.');const stream=new Blob([payload]).stream().pipeThrough(new DecompressionStream('deflate-raw'));blob=await new Response(stream).blob();}else throw Error('Método de ZIP não suportado: '+e.method);map.set(e.name,blob);if(state.busy)loadingStep('Lendo arquivos do ZIP…',`${map.size} de ${entries.length} arquivos`,map.size,entries.length);}return map;}
 function parseFileName(filename){const n=(filename.split('/').pop()||'').replace(/\.[^.]+$/,'');let normal=n.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[\s.-]+/g,'_');const match=normal.match(/^(.*?)_?(antes|depois|before|after|original|editada|editado)$/);if(!match||!match[1])return null;const slot=['antes','before','original'].includes(match[2])?'before':'after';const key=match[1].replace(/_+$/,'');if(!key)return null;const title=/^\d+$/.test(key)?`Produto ${key}`:key.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());return {key,slot,title};}
 async function importPairsFromFiles(files,{projectName=null,names=[]}={}){const matched=new Map();let ignored=0;for(const file of files){if(!isImage(file)){ignored++;continue;}const info=parseFileName(file.name);if(!info){ignored++;continue;}if(!matched.has(info.key))matched.set(info.key,{name:info.title,before:null,after:null});matched.get(info.key)[info.slot]=file;}
  if(!matched.size)throw Error('Nenhuma imagem com “_antes” ou “_depois” no nome foi encontrada.');if(projectName){const p={id:uid(),name:String(projectName).slice(0,200),created:Date.now()};await put('projects',p);state.projectId=p.id;}
  let n=0,base=state.pairs.length?Math.max(...state.pairs.map(p=>p.order))+1:0;for(const [key,item] of matched){const num=parseInt(key,10);const title=Number.isInteger(num)&&num>0&&num<=names.length?names[num-1]:item.name;await put('pairs',{id:uid(),projectId:state.projectId,created:Date.now()+n,order:base+n,name:String(title).slice(0,200),beforeBlob:item.before,afterBlob:item.after,beforeName:item.before?.name||'',afterName:item.after?.name||''});n++;}await refresh();toast(`${n} comparativo(s) importado(s).${ignored?' '+ignored+' arquivo(s) ignorado(s).':''}`);}
 async function importArchive(file){const entries=await readZip(file);const lookup=name=>entries.get(name)||entries.get([...entries.keys()].find(k=>k.endsWith('/'+name)));let manifest=null;for(const [name,blob] of entries){if(name==='projeto.json'||name.endsWith('/projeto.json')){try{manifest=JSON.parse(await blob.text());}catch{}break;}}
- if(manifest?.kind==='ecatalogos-image-studio'&&Array.isArray(manifest.items)){const p={id:uid(),name:String(manifest.projectName||file.name.replace(/\.(zip|ecproj)$/i,'')).slice(0,200),created:Date.now()};await put('projects',p);state.projectId=p.id;let i=0;for(const item of manifest.items){const bef=item.before?lookup(item.before):null,aft=item.after?lookup(item.after):null;const bname=item.before?.split('/').pop()||'',aname=item.after?.split('/').pop()||'';await put('pairs',{id:uid(),projectId:p.id,name:String(item.name||`Produto ${i+1}`).slice(0,200),order:i,created:Date.now()+i,beforeBlob:bef?new File([bef],bname,{type:mimeFor(bname)}):null,afterBlob:aft?new File([aft],aname,{type:mimeFor(aname)}):null,beforeName:bname,afterName:aname,reviewStatus:['approved','rejected'].includes(item.reviewStatus)?item.reviewStatus:null,reviewedAt:item.reviewedAt||null,isUsed:item.reviewStatus==='approved'&&Boolean(item.isUsed),usedIn:item.reviewStatus==='approved'&&item.isUsed?String(item.usedIn||'').trim():''});i++;}await refresh();toast(`Backup restaurado: ${i} comparativos.`);return;}
+ if(manifest?.kind==='ecatalogos-image-studio'&&Array.isArray(manifest.items)){const p={id:uid(),name:String(manifest.projectName||file.name.replace(/\.(zip|ecproj)$/i,'')).slice(0,200),created:Date.now()};await put('projects',p);state.projectId=p.id;let i=0;for(const item of manifest.items){const bef=item.before?lookup(item.before):null,aft=item.after?lookup(item.after):null;const bname=item.before?.split('/').pop()||'',aname=item.after?.split('/').pop()||'';await put('pairs',{id:uid(),projectId:p.id,name:String(item.name||`Produto ${i+1}`).slice(0,200),order:i,created:Date.now()+i,beforeBlob:bef?new File([bef],bname,{type:mimeFor(bname)}):null,afterBlob:aft?new File([aft],aname,{type:mimeFor(aname)}):null,beforeName:bname,afterName:aname,reviewStatus:['approved','rejected'].includes(item.reviewStatus)?item.reviewStatus:null,reviewedAt:item.reviewedAt||null,isUsed:item.reviewStatus==='approved'&&Boolean(item.isUsed),usedIn:item.reviewStatus==='approved'&&item.isUsed?String(item.usedIn||'').trim():'',usageTools:item.reviewStatus==='approved'&&item.isUsed?normalizeUsageTools(item.usageTools):[]});i++;}await refresh();toast(`Backup restaurado: ${i} comparativos.`);return;}
  let names=[];for(const [name,blob] of entries){if(name.endsWith('manifest.json')){try{names=JSON.parse(await blob.text()).names||[];}catch{}break;}}
  const imageFiles=[];for(const [name,blob] of entries){if(!/\.(png|jpg|jpeg|webp|gif)$/i.test(name))continue;const only=name.split('/').pop();imageFiles.push(new File([blob],only,{type:mimeFor(name)}));}
  await importPairsFromFiles(imageFiles,{projectName:file.name.replace(/\.(zip|ecproj)$/i,'').replace(/[_-]+/g,' '),names});}
@@ -147,16 +148,22 @@ function renderReviewSummary(){
 function reviewLabel(status){return status==='approved'?'✓ Aprovado':status==='rejected'?'✕ Reprovado':'Aguardando avaliação';}
 function usageMarkup(row){
  const approved=row.reviewStatus==='approved',available=state.db?.usageSupported===true;
- const enabled=approved&&available,used=approved&&Boolean(row.isUsed);
+ const enabled=approved&&available,used=approved&&Boolean(row.isUsed),toolsAvailable=state.db?.usageToolsSupported===true;
+ const tools=normalizeUsageTools(row.usageTools);
  const whereId=`usage-where-${row.id}`;
- const label=used?`Aprovada · Usada em ${row.usedIn}`:'Aprovada · Não usada';
+ const label=used?`Aprovada · Usada em ${usageToolLabels(tools)||row.usedIn}`:'Aprovada · Não usada';
  return `<form class="review-usage" data-usage-form>
   <div class="usage-heading"><strong>Uso da imagem</strong>${approved?`<span class="usage-status ${used?'is-used':''}" aria-live="polite">${esc(label)}</span>`:''}</div>
   <div class="usage-fields">
    <label class="usage-check"><input type="checkbox" name="isUsed" ${used?'checked':''} ${enabled?'':'disabled'}> <span>Usado</span></label>
-   <div class="usage-location"><label for="${esc(whereId)}">Onde está sendo usada?</label><input id="${esc(whereId)}" type="text" name="usedIn" maxlength="300" placeholder="Ex.: Catálogo de verão, Instagram, site…" value="${esc(row.usedIn||'')}" ${enabled&&used?'required':'disabled'}></div>
+   <div class="usage-location"><label for="${esc(whereId)}">Onde está sendo usada?</label><input id="${esc(whereId)}" type="text" name="usedIn" maxlength="300" placeholder="Ex.: Catálogo de verão, Instagram, site…" value="${esc(row.usedIn||'')}" ${enabled&&used?(tools.length?'':'required'):'disabled'}></div>
    <button type="submit" class="button light small" ${enabled?'':'disabled'}>Salvar uso</button>
   </div>
+  <fieldset class="usage-tools" data-tools-supported="${toolsAvailable}" ${enabled&&used&&toolsAvailable?'':'disabled'}>
+   <legend>Ferramentas em que está sendo usada</legend>
+   <div class="usage-tools-options">${USAGE_TOOLS.map(tool=>`<label class="usage-tool-option"><input type="checkbox" name="usageTools" value="${tool.id}" ${tools.includes(tool.id)?'checked':''}> <span>${tool.label}</span></label>`).join('')}</div>
+  </fieldset>
+  ${available&&approved?(toolsAvailable?'<p class="usage-help">Você pode marcar uma, duas ou as três ferramentas. Os detalhes acima são opcionais quando houver uma ferramenta marcada.</p>':'<p class="usage-help usage-tools-unavailable">A seleção de ferramentas precisa ser ativada pelo responsável pela Auditoria. O campo de local de uso continua disponível.</p>'):''}
   ${!available?'<p class="usage-help">O registro de uso precisa ser ativado pelo responsável pela Auditoria.</p>':!approved?'<p class="usage-help">Aprove a imagem para registrar onde ela está sendo usada.</p>':''}
  </form>`;
 }
@@ -168,17 +175,17 @@ async function saveReviewUsage(form){
  const row=state.pairs.find(p=>p.id===form.closest('.review-pair').dataset.id);
  if(!row||row.reviewStatus!=='approved')throw new Error('Aprove a imagem antes de registrar seu uso.');
  const store=state.db;
- const saved=await store.setUsage(row.id,form.elements.isUsed.checked,form.elements.usedIn.value);
+ const saved=await store.setUsage(row.id,form.elements.isUsed.checked,form.elements.usedIn.value,Array.from(form.querySelectorAll('[name=usageTools]:checked'),input=>input.value));
  if(state.db!==store||!canUseStudio())return;
  Object.assign(row,saved);renderReviewSummary();
- if(['approved-used','approved-unused'].includes(state.reviewFilter))renderReview();else updateReviewUsage(row);
+ if(['approved-used','approved-unused'].includes(state.reviewFilter)||state.reviewFilter.startsWith('tool:'))renderReview();else updateReviewUsage(row);
  toast(row.isUsed?'Uso da imagem salvo.':'Imagem marcada como não usada.');
 }
 function renderReview(){
  if(!canUseStudio())return;
  renderReviewSummary();
  clearUrls('reviewURLs');
- const filtered=state.pairs.filter(p=>state.reviewFilter==='all'||(state.reviewFilter==='approved-used'?p.reviewStatus==='approved'&&p.isUsed:state.reviewFilter==='approved-unused'?p.reviewStatus==='approved'&&!p.isUsed:state.reviewFilter==='pending'?!['approved','rejected'].includes(p.reviewStatus):p.reviewStatus===state.reviewFilter));
+ const filtered=state.pairs.filter(p=>state.reviewFilter.startsWith('tool:')?p.reviewStatus==='approved'&&p.isUsed&&normalizeUsageTools(p.usageTools).includes(state.reviewFilter.slice(5)):state.reviewFilter==='all'||(state.reviewFilter==='approved-used'?p.reviewStatus==='approved'&&p.isUsed:state.reviewFilter==='approved-unused'?p.reviewStatus==='approved'&&!p.isUsed:state.reviewFilter==='pending'?!['approved','rejected'].includes(p.reviewStatus):p.reviewStatus===state.reviewFilter));
  if(!filtered.length){
   $('reviewCards').innerHTML=state.pairs.length?'<div class="review-empty"><h2>Nenhum comparativo neste filtro</h2><p>Selecione “Todas” para rever as imagens desta coleção.</p></div>':'<div class="review-empty"><h2>Nenhum comparativo ainda</h2><p>Volte à Auditoria e adicione suas imagens “antes” e “depois”. Depois, retorne aqui para aprovar ou reprovar.</p><button type="button" class="review-back" id="reviewEmptyBack">Voltar à Auditoria</button></div>';
   return;
@@ -209,10 +216,11 @@ function renderReview(){
 async function setReviewDecision(id,status){
  const row=state.pairs.find(p=>p.id===id);
  if(!row||!row.beforeBlob||!row.afterBlob)return;
- const previous=row.reviewStatus||null,previousDate=row.reviewedAt||null,previousUsed=row.isUsed||false,previousWhere=row.usedIn||'';
+ const previous=row.reviewStatus||null,previousDate=row.reviewedAt||null,previousUsed=row.isUsed||false,previousWhere=row.usedIn||'',previousTools=normalizeUsageTools(row.usageTools);
+ if(previous===status&&!confirm(`Deseja remover ${status==='approved'?'a aprovação':'a reprovação'} de “${row.name}”? O comparativo ficará sem avaliação.`))return;
  row.reviewStatus=previous===status?null:status;
  row.reviewedAt=row.reviewStatus?new Date().toISOString():null;
- if(row.reviewStatus!=='approved'){row.isUsed=false;row.usedIn='';}
+ if(row.reviewStatus!=='approved'){row.isUsed=false;row.usedIn='';row.usageTools=[];}
  try{
   await put('pairs',row);
   const card=Array.from($('reviewCards').querySelectorAll('.review-pair')).find(el=>el.dataset.id===id);
@@ -223,7 +231,7 @@ async function setReviewDecision(id,status){
   updateReviewUsage(row);renderReviewSummary();
   if(state.reviewFilter!=='all')renderReview();
   toast(row.reviewStatus==='approved'?'Comparativo aprovado.':row.reviewStatus==='rejected'?'Comparativo reprovado.':'Avaliação removida.');
- }catch(e){row.reviewStatus=previous;row.reviewedAt=previousDate;row.isUsed=previousUsed;row.usedIn=previousWhere;toast('Não foi possível salvar sua avaliação.',true);renderReview();}
+ }catch(e){row.reviewStatus=previous;row.reviewedAt=previousDate;row.isUsed=previousUsed;row.usedIn=previousWhere;row.usageTools=previousTools;toast('Não foi possível salvar sua avaliação.',true);renderReview();}
 }
 
 function hook(){
@@ -231,9 +239,13 @@ function hook(){
  $('openReview').onclick=navigateToReview; $('reviewSidebar').onclick=navigateToReview; $('backToStudio').onclick=navigateToStudio;window.addEventListener('hashchange',syncViewFromHash);
  $('reviewCards').addEventListener('click',e=>{if(!canUseStudio()||state.busy)return;const original=e.target.closest('[data-download]');if(original)return downloadOriginal(original.closest('.review-pair').dataset.id,original.dataset.download);if(e.target.closest('#reviewEmptyBack'))return navigateToStudio();const btn=e.target.closest('[data-choice]');const id=btn?.closest('.review-pair')?.dataset.id;if(btn&&id)run(()=>setReviewDecision(id,btn.dataset.choice));});
  $('reviewCards').addEventListener('change',e=>{
-  if(e.target.name!=='isUsed')return;
-  const field=e.target.form.elements.usedIn;field.disabled=!e.target.checked;field.required=e.target.checked;
-  if(e.target.checked)field.focus();
+  if(!['isUsed','usageTools'].includes(e.target.name))return;
+  const form=e.target.form,used=form.elements.isUsed.checked;
+  const field=form.elements.usedIn,tools=form.querySelector('.usage-tools');
+  const selected=form.querySelectorAll('[name=usageTools]:checked').length;
+  field.disabled=!used;field.required=used&&selected===0;
+  tools.disabled=!used||tools.dataset.toolsSupported!=='true';
+  if(e.target.name==='isUsed'&&used)field.focus();
  });
  $('reviewCards').addEventListener('submit',e=>{
   const form=e.target.closest('[data-usage-form]');if(!form)return;e.preventDefault();
