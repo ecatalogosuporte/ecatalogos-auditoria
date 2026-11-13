@@ -60,12 +60,13 @@ alter table public.studio_pairs
 
 alter table public.studio_pairs drop constraint if exists studio_pairs_usage_valid;
 alter table public.studio_pairs add constraint studio_pairs_usage_valid check (
-  usage_tools <@ array['forca-de-vendas', 'b2b', 'atacado-de-modas']::text[]
+  usage_tools <@ array['forca-de-vendas', 'b2b', 'atacado-de-modas', 'site-ecatalogos']::text[]
   and array_position(usage_tools, null) is null
   and cardinality(usage_tools) =
     (case when 'forca-de-vendas' = any(usage_tools) then 1 else 0 end) +
     (case when 'b2b' = any(usage_tools) then 1 else 0 end) +
-    (case when 'atacado-de-modas' = any(usage_tools) then 1 else 0 end)
+    (case when 'atacado-de-modas' = any(usage_tools) then 1 else 0 end) +
+    (case when 'site-ecatalogos' = any(usage_tools) then 1 else 0 end)
   and (
     (not is_used and used_in = '' and cardinality(usage_tools) = 0) or
     (is_used and review_status is not distinct from 'approved'

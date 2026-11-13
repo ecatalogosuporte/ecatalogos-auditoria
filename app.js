@@ -163,7 +163,7 @@ function usageMarkup(row){
    <legend>Ferramentas em que está sendo usada</legend>
    <div class="usage-tools-options">${USAGE_TOOLS.map(tool=>`<label class="usage-tool-option"><input type="checkbox" name="usageTools" value="${tool.id}" ${tools.includes(tool.id)?'checked':''}> <span>${tool.label}</span></label>`).join('')}</div>
   </fieldset>
-  ${available&&approved?(toolsAvailable?'<p class="usage-help">Você pode marcar uma, duas ou as três ferramentas. Os detalhes acima são opcionais quando houver uma ferramenta marcada.</p>':'<p class="usage-help usage-tools-unavailable">A seleção de ferramentas precisa ser ativada pelo responsável pela Auditoria. O campo de local de uso continua disponível.</p>'):''}
+  ${available&&approved?(toolsAvailable?'<p class="usage-help">Você pode marcar várias ferramentas ao mesmo tempo. Os detalhes acima são opcionais quando houver uma ferramenta marcada.</p>':'<p class="usage-help usage-tools-unavailable">A seleção de ferramentas precisa ser ativada pelo responsável pela Auditoria. O campo de local de uso continua disponível.</p>'):''}
   ${!available?'<p class="usage-help">O registro de uso precisa ser ativado pelo responsável pela Auditoria.</p>':!approved?'<p class="usage-help">Aprove a imagem para registrar onde ela está sendo usada.</p>':''}
  </form>`;
 }

@@ -47,11 +47,11 @@ O nome legado `VITE_SUPABASE_ANON_KEY` também é aceito. Use apenas a chave pú
 
 ## Registrar uso das imagens na revisão
 
-Depois de aprovar uma imagem, marque **Usado** e selecione as ferramentas **Força de vendas**, **B2B** e/ou **Atacado de modas**. São opções independentes: a imagem pode estar em uma, duas ou nas três ferramentas ao mesmo tempo. Clique em **Salvar uso** para registrar a seleção.
+Depois de aprovar uma imagem, marque **Usado** e selecione as ferramentas **Força de vendas**, **B2B**, **Atacado de modas** e/ou **Site — e-catalogos.net**. São opções independentes: a imagem pode estar em qualquer combinação das quatro ferramentas ao mesmo tempo. Clique em **Salvar uso** para registrar a seleção.
 
 O campo **Onde está sendo usada?** continua disponível para detalhar o local (por exemplo, “Carrossel de perfumes do site”). Ele é opcional quando pelo menos uma ferramenta estiver marcada; também é possível registrar somente o texto. A revisão exibe **Aprovada · Não usada** ou **Aprovada · Usada em …**, com contadores, filtros para usadas/não usadas e um filtro para cada ferramenta.
 
-Em projetos Supabase que já estavam configurados, execute [`supabase/migrations/20261113_add_usage_tools.sql`](supabase/migrations/20261113_add_usage_tools.sql) no **SQL Editor**. Ele adiciona os campos necessários e atualiza a validação, preservando os locais de uso existentes. As ferramentas começam desmarcadas e devem ser selecionadas pelo revisor. O script pode ser repetido e também atende a projetos que ainda não tinham os campos de uso. Em instalações novas, `supabase/schema.sql` já inclui essa estrutura.
+Em projetos Supabase que já estavam configurados, execute [`supabase/migrations/20261113_add_site_usage_tool.sql`](supabase/migrations/20261113_add_site_usage_tool.sql) no **SQL Editor**, inclusive se já executou a migração das três ferramentas. Ele adiciona os campos necessários e atualiza a validação para aceitar o site, preservando as ferramentas e os locais de uso existentes. A nova opção começa desmarcada e deve ser selecionada pelo revisor. O script pode ser repetido e também atende a projetos que ainda não tinham os campos de uso. Em instalações novas, `supabase/schema.sql` já inclui essa estrutura.
 
 A chave pública do app não tem permissão para alterar tabelas, então a atualização precisa ser executada pelo responsável pelo Supabase. Depois, publique o código atualizado na Vercel e recarregue a página. Até executar o SQL, o registro de uso por texto continua funcionando nos projetos que já o tinham habilitado; somente as novas ferramentas ficam desabilitadas. Se os campos básicos de uso também estiverem ausentes, todos os controles de uso ficam desabilitados, mas a galeria e as aprovações continuam disponíveis.
 

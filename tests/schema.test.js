@@ -41,6 +41,10 @@ test('SQL schema enforces account isolation, private image access, atomic orderi
     const toolsMigration = await readFile(new URL('../supabase/migrations/20261113_add_usage_tools.sql', import.meta.url), 'utf8');
     await db.exec(toolsMigration); await db.exec(toolsMigration);
     assert.deepEqual((await db.query("select is_used, used_in, usage_tools from studio_pairs where id = 'legacy-pair'")).rows[0], { is_used: true, used_in: 'Carrossel já cadastrado', usage_tools: [] });
+    await db.exec("update studio_pairs set usage_tools = array['forca-de-vendas', 'b2b', 'atacado-de-modas'] where id = 'legacy-pair'");
+    const siteMigration = await readFile(new URL('../supabase/migrations/20261113_add_site_usage_tool.sql', import.meta.url), 'utf8');
+    await db.exec(siteMigration); await db.exec(siteMigration);
+    assert.deepEqual((await db.query("select used_in, usage_tools from studio_pairs where id = 'legacy-pair'")).rows[0], { used_in: 'Carrossel já cadastrado', usage_tools: ['forca-de-vendas', 'b2b', 'atacado-de-modas'] });
     await db.exec(schema);
     await db.exec("delete from studio_projects where id = 'legacy'");
     const bucket = (await db.query("select * from storage.buckets where id = 'studio-images'")).rows[0];
@@ -55,8 +59,8 @@ test('SQL schema enforces account isolation, private image access, atomic orderi
     await db.query("update studio_pairs set review_status = 'approved', before_path = $1, after_path = $2 where id = 'first'", [`${owner}/before.png`, `${owner}/after.png`]);
     await assert.rejects(db.query("update studio_pairs set is_used = true, used_in = '   ' where id = 'first'"), /check constraint/);
     await db.query("update studio_pairs set is_used = true, used_in = 'Catálogo de verão' where id = 'first'");
-    const tools = ['forca-de-vendas', 'b2b', 'atacado-de-modas'];
-    for (let mask = 1; mask < 8; mask++) {
+    const tools = ['forca-de-vendas', 'b2b', 'atacado-de-modas', 'site-ecatalogos'];
+    for (let mask = 1; mask < 16; mask++) {
       const selected = tools.filter((_, i) => mask & (1 << i));
       const literal = `array[${selected.map(value => `'${value}'`).join(',')}]::text[]`;
       await db.query(`update studio_pairs set is_used = true, used_in = '', usage_tools = ${literal} where id = 'first'`);

@@ -570,7 +570,7 @@ test('saving usage shows feedback and releases controls without losing the draft
 });
 
 
-test('review saves all seven tool combinations, restores them from backup and filters by tool', async ({ page, context }) => {
+test('review saves all fifteen tool combinations, restores them from backup and filters by tool', async ({ page, context }) => {
   const backend = await mockSupabase(context);
   await page.goto('/'); await login(page); await addPair(page);
   await page.locator('#openReview').click();
@@ -580,9 +580,10 @@ test('review saves all seven tool combinations, restores them from backup and fi
   const tools = [
     { id: 'forca-de-vendas', label: 'Força de vendas' },
     { id: 'b2b', label: 'B2B' },
-    { id: 'atacado-de-modas', label: 'Atacado de modas' }
+    { id: 'atacado-de-modas', label: 'Atacado de modas' },
+    { id: 'site-ecatalogos', label: 'Site — e-catalogos.net' }
   ];
-  for (let mask = 1; mask < 8; mask++) {
+  for (let mask = 1; mask < 16; mask++) {
     for (const [index, tool] of tools.entries()) {
       await page.locator(`[name="usageTools"][value="${tool.id}"]`).setChecked(Boolean(mask & (1 << index)));
     }
@@ -591,7 +592,7 @@ test('review saves all seven tool combinations, restores them from backup and fi
     await expect(page.locator('.usage-status')).toHaveText(`Aprovada · Usada em ${selected.map(t => t.label).join(', ')}`);
     expect(backend.pairs[0].usage_tools).toEqual(selected.map(t => t.id));
     expect(backend.pairs[0].used_in).toBe('');
-    if ([1, 3, 7].includes(mask)) {
+    if ([1, 3, 7, 8, 15].includes(mask)) {
       await page.reload();
       await expect(page.locator('[name="isUsed"]')).toBeChecked();
       for (const tool of tools) await expect(page.locator(`[name="usageTools"][value="${tool.id}"]`)).toBeChecked({ checked: selected.includes(tool) });
@@ -615,6 +616,11 @@ test('review saves all seven tool combinations, restores them from backup and fi
   await page.locator('#openReview').click();
   for (const tool of tools) await expect(page.locator(`[name="usageTools"][value="${tool.id}"]`)).toBeChecked();
   await expect(page.locator('[name="usedIn"]')).toHaveValue('Carrossel de perfumes');
+  await page.locator('#reviewFilter').selectOption('tool:site-ecatalogos');
+  await expect(page.locator('.review-pair')).toHaveCount(1);
+  await page.locator('[name="usageTools"][value="site-ecatalogos"]').uncheck();
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.review-pair')).toHaveCount(0);
   await page.locator('#reviewFilter').selectOption('tool:forca-de-vendas');
   await expect(page.locator('.review-pair')).toHaveCount(1);
   await page.locator('[name="usageTools"][value="forca-de-vendas"]').uncheck();

@@ -44,11 +44,13 @@ separadamente, na galeria e na revisão, sem alterar seu arquivo.
 
 USO DAS IMAGENS NA REVISÃO
 Depois de aprovar uma imagem, marque “Usado” e selecione “Força de vendas”,
-“B2B” e/ou “Atacado de modas”. Você pode marcar uma, duas ou as três.
+“B2B”, “Atacado de modas” e/ou “Site — e-catalogos.net”. Você pode marcar
+qualquer combinação das quatro opções.
 O campo de local continua disponível para detalhes e é opcional quando
 alguma ferramenta estiver marcada. Clique em “Salvar uso”. Há filtros
 por ferramenta e para aprovadas usadas e não usadas.
 Para habilitar no banco já existente, execute no SQL Editor do Supabase:
-  supabase/migrations/20261113_add_usage_tools.sql
-O script preserva os locais de uso já registrados e pode ser repetido.
+  supabase/migrations/20261113_add_site_usage_tool.sql
+Execute também se já habilitou as três ferramentas anteriores. O script
+preserva as ferramentas e os locais de uso registrados e pode ser repetido.
 Depois, publique a versão atualizada na Vercel e recarregue o app.

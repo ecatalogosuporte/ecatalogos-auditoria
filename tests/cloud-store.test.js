@@ -96,8 +96,8 @@ test('existing databases keep saving normal comparisons while usage waits for mi
 
 test('tool-only usage stores every selected tool once without requiring a description', async () => {
   const { store, metadata } = setup();
-  await store.put('pairs', { ...pair(), reviewStatus: 'approved', isUsed: true, usedIn: '', usageTools: ['b2b', 'forca-de-vendas', 'b2b', 'atacado-de-modas'] });
-  assert.deepEqual(metadata.get('pair').usage_tools, ['forca-de-vendas', 'b2b', 'atacado-de-modas']);
+  await store.put('pairs', { ...pair(), reviewStatus: 'approved', isUsed: true, usedIn: '', usageTools: ['site-ecatalogos', 'b2b', 'forca-de-vendas', 'b2b', 'atacado-de-modas'] });
+  assert.deepEqual(metadata.get('pair').usage_tools, ['forca-de-vendas', 'b2b', 'atacado-de-modas', 'site-ecatalogos']);
   assert.equal(metadata.get('pair').used_in, '');
   await assert.rejects(store.put('pairs', { ...pair(), reviewStatus: 'approved', isUsed: true, usedIn: '', usageTools: [] }), /selecione uma ferramenta/);
 });
