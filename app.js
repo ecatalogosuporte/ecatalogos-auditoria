@@ -5,6 +5,7 @@ import { cloudClient, authMessage } from './auth.js';
 import { loginEmail, displayLogin, isStudioLogin } from './login-identity.js';
 import { setLoading, loadingStep, watchImage, watchImages } from './loading-ui.js';
 import { USAGE_TOOLS, normalizeUsageTools, usageToolLabels } from './usage-tools.js';
+import { filterGalleryPairs } from './gallery-filters.js';
 'use strict';
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -21,11 +22,25 @@ const projectStorageKey=()=>state.session?`ec-studio-project-${state.session.use
 const canUseStudio=()=>Boolean(state.session&&state.ready&&state.db);
 const current=()=>state.projects.find(p=>p.id===state.projectId);
 function toast(message,error=false){const el=$('toast');el.textContent=message;el.style.background=error?'#a0443f':'#153f64';el.classList.add('show');clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>el.classList.remove('show'),3800);}
-function busy(on,label='Processando arquivos...',button=null){setLoading(on,label,button);state.busy=on;$('pairForm').inert=on;$('closeModal').disabled=on;$('cancelModal').disabled=on;$('studioShell').inert=on||!canUseStudio();$('reviewView').inert=on||!canUseStudio();['exportAll','downloadBackup','bulkImport','newPair','uploadBackup','savePair'].forEach(id=>$(id).disabled=on);const notice=$('notice');notice.hidden=!on;}
+function busy(on,label='Processando arquivos...',button=null){setLoading(on,label,button);state.busy=on;$('pairForm').inert=on;$('closeModal').disabled=on;$('cancelModal').disabled=on;$('studioShell').inert=on||!canUseStudio();$('reviewView').inert=on||!canUseStudio();['exportAll','downloadBackup','bulkImport','newPair','uploadBackup','savePair'].forEach(id=>$(id).disabled=on);const notice=$('notice');notice.hidden=!on;if(!on)updateGalleryExport();}
 async function run(task,label='Salvando alterações...',button=null){if(state.busy)return;if(!canUseStudio())return toast('Entre na sua conta para acessar o eCatalogos Auditoria.',true);busy(true,label,button);try{return await task();}catch(error){toast(error.message,true);}finally{busy(false);}}
 function download(blob,name){if(!canUseStudio())return;const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),45000);}
 function objectURL(blob,collector){if(!blob)return null;const u=URL.createObjectURL(blob);collector.push(u);return u;}
 function clearUrls(key){state[key].forEach(u=>URL.revokeObjectURL(u));state[key]=[];}
+function galleryPairs(){
+ return filterGalleryPairs(state.pairs,{search:$('search').value,status:$('galleryStatus').value,tools:Object.fromEntries(Array.from($('galleryToolFilters').querySelectorAll('select'),el=>[el.dataset.galleryTool,el.value]))});
+}
+function galleryExportRows(){const mode=$('galleryExportMode').value;return galleryPairs().filter(p=>mode==='comparison'?p.beforeBlob&&p.afterBlob:p[mode+'Blob']);}
+function updateGalleryExport(){
+ const shown=galleryPairs(),count=galleryExportRows().length,mode=$('galleryExportMode').value;
+ $('galleryFilterSummary').textContent=`${shown.length} de ${state.pairs.length} produtos no filtro · ${count} PNG(s) para baixar`;
+ $('galleryExportHint').textContent=mode==='comparison'?'Comparativos em PNG de 1068 × 1473 px.':'Imagens em PNG nas dimensões originais. Produtos sem essa imagem ficam fora do ZIP.';
+ $('exportAll').disabled=state.busy||count===0;
+}
+function resetGalleryFilters(){
+ $('search').value='';$('galleryStatus').value='all';
+ for(const el of $('galleryToolFilters').querySelectorAll('select'))el.value='all';
+}
 async function refresh(){
  if(!state.session||!state.db)throw new Error('Entre na sua conta para acessar o eCatalogos Auditoria.');
  const store=state.db,userId=state.session.user.id;
@@ -43,12 +58,12 @@ async function refresh(){
 }
 function render(){if(!state.session)return;const p=current();$('projectTitle').textContent=p?.name||'Comparativos';const ready=state.pairs.filter(p=>p.beforeBlob&&p.afterBlob).length;$('countPairs').textContent=state.pairs.length;$('countReady').textContent=ready;$('countPending').textContent=state.pairs.length-ready;$('galleryCount').textContent=`(${state.pairs.length})`;
  $('projectList').innerHTML=state.projects.map(pr=>`<button class="project ${pr.id===state.projectId?'active':''}" data-project="${esc(pr.id)}"><span class="folder">▱</span><span class="project-name" title="${esc(pr.name)}">${esc(pr.name)}</span><span class="project-count">${pr.id===state.projectId?state.pairs.length:''}</span></button>`).join('');
- clearUrls('cardURLs');const search=$('search').value.trim().toLocaleLowerCase();const shown=state.pairs.filter(pr=>pr.name.toLocaleLowerCase().includes(search));
- if(!shown.length){$('gallery').innerHTML=state.pairs.length?`<div class="empty-state"><div class="empty-art"><span></span><span></span></div><h3>Nenhum produto encontrado</h3><p>Tente buscar outro nome para localizar seu comparativo.</p></div>`:`<div class="empty-state"><div class="empty-art"><span></span><span></span></div><h3>Sua galeria começa aqui</h3><p>Adicione um par de imagens ou importe um lote de arquivos nomeados com _antes e _depois. Tudo ficará organizado neste projeto.</p><button class="button primary" data-action="new">＋ Adicionar primeiro comparativo</button></div>`;return;}
+ clearUrls('cardURLs');const shown=galleryPairs();$('galleryCount').textContent=shown.length===state.pairs.length?`(${shown.length})`:`(${shown.length} de ${state.pairs.length})`;updateGalleryExport();
+ if(!shown.length){$('gallery').innerHTML=state.pairs.length?`<div class="empty-state"><div class="empty-art"><span></span><span></span></div><h3>Nenhum produto encontrado</h3><p>Ajuste a busca ou limpe os filtros para encontrar seus produtos.</p></div>`:`<div class="empty-state"><div class="empty-art"><span></span><span></span></div><h3>Sua galeria começa aqui</h3><p>Adicione um par de imagens ou importe um lote de arquivos nomeados com _antes e _depois. Tudo ficará organizado neste projeto.</p><button class="button primary" data-action="new">＋ Adicionar primeiro comparativo</button></div>`;return;}
  $('gallery').innerHTML=shown.map(pr=>{const position=state.pairs.indexOf(pr),ok=pr.beforeBlob&&pr.afterBlob;const before=objectURL(pr.beforeBlob,state.cardURLs),after=objectURL(pr.afterBlob,state.cardURLs);
- return `<article class="pair-card" data-id="${esc(pr.id)}"><div class="pair-heading"><div class="heading-left"><span class="pair-no">${String(position+1).padStart(2,'0')}</span><span class="pair-name" title="${esc(pr.name)}">${esc(pr.name)}</span></div><div class="heading-right"><span class="status ${ok?'ready':'pending'}">${ok?'PRONTO PARA EXPORTAR':'AGUARDANDO IMAGEM'}</span><span class="card-meta">Layout antes/depois — 1068 × 1473 px</span></div></div><div class="comparison"><div class="comparison-col"><h3>ANTES</h3><div class="compare-image ${before?'':'empty'}">${before?`<img src="${before}" alt="Antes: ${esc(pr.name)}">`:'<b>＋</b><span>Sem imagem original</span>'}</div><button type="button" class="card-btn original-download" data-action="download-before" ${before?'':'disabled'}>⇩ Baixar antes</button></div><div class="comparison-col"><h3>DEPOIS</h3><div class="compare-image ${after?'':'empty'}">${after?`<img src="${after}" alt="Depois: ${esc(pr.name)}">`:'<b>＋</b><span>Sem imagem modificada</span>'}</div><button type="button" class="card-btn original-download" data-action="download-after" ${after?'':'disabled'}>⇩ Baixar depois</button></div></div><div class="pair-note">Imagens ajustadas sem distorção. Exporte o comparativo quando as duas estiverem prontas.</div><div class="pair-footer"><div class="pair-footer-left"><button class="card-btn" data-action="up" title="Mover para cima" ${position===0?'disabled':''}>↑ Subir</button><button class="card-btn" data-action="down" title="Mover para baixo" ${position===state.pairs.length-1?'disabled':''}>↓ Descer</button><button class="card-btn" data-action="edit">✎ Editar</button></div><div class="pair-footer-right"><button class="card-btn danger" data-action="delete" title="Excluir">Excluir</button><button class="card-btn export" data-action="download" ${ok?'':'disabled'}>⇩ PNG</button></div></div></article>`;}).join('');watchImages($('gallery'));}
-async function newProject(name){const p={id:uid(),name:name.slice(0,200),created:Date.now()};await put('projects',p);state.projectId=p.id;$('search').value='';await refresh();toast('Novo projeto criado.');}
-async function chooseProject(id){if(!state.projects.find(p=>p.id===id))return;state.projectId=id;$('search').value='';$('sidebar').classList.remove('open');await refresh();}
+ return `<article class="pair-card" data-id="${esc(pr.id)}"><div class="pair-heading"><div class="heading-left"><span class="pair-no">${String(position+1).padStart(2,'0')}</span><span class="pair-name" title="${esc(pr.name)}">${esc(pr.name)}</span></div><div class="heading-right"><span class="status ${ok?'ready':'pending'}">${ok?'PRONTO PARA EXPORTAR':'AGUARDANDO IMAGEM'}</span><span class="card-meta">Layout antes/depois — 1068 × 1473 px</span></div></div><div class="comparison"><div class="comparison-col"><h3>ANTES</h3><div class="compare-image ${before?'':'empty'}">${before?`<img src="${before}" alt="Antes: ${esc(pr.name)}">`:'<b>＋</b><span>Sem imagem original</span>'}</div><button type="button" class="card-btn original-download" data-action="download-before" ${before?'':'disabled'}>⇩ Baixar antes</button></div><div class="comparison-col"><h3>DEPOIS</h3><div class="compare-image ${after?'':'empty'}">${after?`<img src="${after}" alt="Depois: ${esc(pr.name)}">`:'<b>＋</b><span>Sem imagem modificada</span>'}</div><button type="button" class="card-btn original-download" data-action="download-after" ${after?'':'disabled'}>⇩ Baixar depois</button></div></div><div class="pair-note">Imagens ajustadas sem distorção. Exporte o comparativo quando as duas estiverem prontas.</div><details class="gallery-usage"><summary><span>Uso da imagem</span><span class="gallery-usage-badge">${esc(pr.reviewStatus==='approved'?(pr.isUsed?`Usada em ${usageToolLabels(pr.usageTools)||pr.usedIn}`:'Aprovada · Não usada'):reviewLabel(pr.reviewStatus))}</span><span class="gallery-usage-edit">Editar uso ▾</span></summary><div class="gallery-usage-editor"></div></details><div class="pair-footer"><div class="pair-footer-left"><button class="card-btn" data-action="up" title="Mover para cima" ${position===0?'disabled':''}>↑ Subir</button><button class="card-btn" data-action="down" title="Mover para baixo" ${position===state.pairs.length-1?'disabled':''}>↓ Descer</button><button class="card-btn" data-action="edit">✎ Editar</button></div><div class="pair-footer-right"><button class="card-btn danger" data-action="delete" title="Excluir">Excluir</button><button class="card-btn export" data-action="download" ${ok?'':'disabled'}>⇩ PNG</button></div></div></article>`;}).join('');watchImages($('gallery'));}
+async function newProject(name){const p={id:uid(),name:name.slice(0,200),created:Date.now()};await put('projects',p);state.projectId=p.id;resetGalleryFilters();await refresh();toast('Novo projeto criado.');}
+async function chooseProject(id){if(!state.projects.find(p=>p.id===id))return;state.projectId=id;resetGalleryFilters();$('sidebar').classList.remove('open');await refresh();}
 async function deleteProject(){const p=current();if(!p)return;if(!confirm(`Excluir o projeto “${p.name}” e TODOS os seus ${state.pairs.length} comparativos?\n\nRecomendamos baixar um backup antes.`))return;await del('projects',p.id);state.projectId=null;await refresh();toast('Projeto excluído.');}
 async function renameProject(){const p=current();if(!p)return;const name=prompt('Nome do projeto:',p.name);if(name===null)return;const cleaned=name.trim().slice(0,200);if(!cleaned)return toast('O nome não pode ficar vazio.',true);await put('projects',{...p,name:cleaned});await refresh();toast('Projeto renomeado.');}
 function modalUpdate(slot){const blob=state.modalBlobs[slot],img=$(slot==='before'?'beforePreview':'afterPreview'),zone=$(slot==='before'?'beforeZone':'afterZone');const clr=$(slot==='before'?'clearBefore':'clearAfter');const placeholder=zone.querySelector('.zone-placeholder');if(blob){const u=objectURL(blob,state.modalURLs);img.src=u;img.hidden=false;watchImage(img);placeholder.hidden=true;clr.hidden=false;}else{img.removeAttribute('src');img.hidden=true;watchImage(img);placeholder.hidden=false;clr.hidden=true;}}
@@ -88,6 +103,13 @@ async function deletePair(id){const p=state.pairs.find(p=>p.id===id);if(!p||!con
 async function movePair(id,delta){const idx=state.pairs.findIndex(p=>p.id===id);const j=idx+delta;if(idx<0||j<0||j>=state.pairs.length)return;await state.db.movePairs(id,state.pairs[j].id);await refresh();}
 function canvasText(ctx,text,maxWidth,x,y,maxSize=36){let size=maxSize;ctx.font=`800 ${size}px Arial,sans-serif`;while(size>19&&ctx.measureText(text).width>maxWidth){size-=1;ctx.font=`800 ${size}px Arial,sans-serif`;}ctx.fillText(text,x,y);}
 async function loadImage(blob){const u=URL.createObjectURL(blob);try{const im=new Image();im.decoding='async';im.src=u;await im.decode();return im;}finally{URL.revokeObjectURL(u);}}
+async function originalPNG(blob){
+ if(blob.type==='image/png')return blob;
+ const image=await loadImage(blob),canvas=document.createElement('canvas');
+ canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+ canvas.getContext('2d').drawImage(image,0,0);
+ return new Promise((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(new Error('Não foi possível converter a imagem em PNG.')),'image/png'));
+}
 async function comparisonPNG(row,number){const w=1068,h=1473,c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.fillStyle='#192e31';ctx.textAlign='left';canvasText(ctx,`${String(number).padStart(2,'0')}  ${row.name.toLocaleUpperCase('pt-BR')}`,w-70,38,81,35);
  const xs=[26,539],cw=503,top=219,bottom=1347,ch=bottom-top;ctx.textAlign='center';ctx.font='800 36px Arial,sans-serif';ctx.fillText('ANTES',xs[0]+cw/2,168);ctx.fillText('DEPOIS',xs[1]+cw/2,168);ctx.strokeStyle='#e2e6e6';ctx.lineWidth=2;xs.forEach(x=>ctx.strokeRect(x,top,cw,ch));
  for(const [i,blob] of [row.beforeBlob,row.afterBlob].entries()){if(!blob)continue;const im=await loadImage(blob),pad=4,iw=cw-pad*2,ih=ch-pad*2;const scale=Math.min(iw/im.naturalWidth,ih/im.naturalHeight);const dw=im.naturalWidth*scale,dh=im.naturalHeight*scale;ctx.imageSmoothingQuality='high';ctx.drawImage(im,xs[i]+(cw-dw)/2,top+(ch-dh)/2,dw,dh);}ctx.textAlign='center';ctx.fillStyle='#a4b1b1';ctx.font='16px Arial,sans-serif';ctx.fillText('eCatalogos Auditoria  ·  Comparativos de imagens',w/2,1422);
@@ -108,7 +130,32 @@ function downloadOriginal(id,slot) {
  toast(`Imagem “${label}” baixada no formato original.`);
 }
 async function exportOne(id){if(!canUseStudio())return;const row=state.pairs.find(p=>p.id===id);if(!row?.beforeBlob||!row?.afterBlob)return toast('Este comparativo precisa das duas imagens.',true);busy(true,'Preparando imagem 1068 × 1473...');try{const blob=await comparisonPNG(row,state.pairs.indexOf(row)+1);download(blob,`${String(state.pairs.indexOf(row)+1).padStart(2,'0')}_${slug(row.name)}_antes-depois_1068x1473.png`);toast('PNG exportado com sucesso.');}catch(e){toast('Não foi possível exportar: '+e.message,true);}finally{busy(false);}}
-async function exportAll(){if(!canUseStudio())return;const ready=state.pairs.filter(p=>p.beforeBlob&&p.afterBlob);if(!ready.length)return toast('Adicione pelo menos um par completo para exportar.',true);busy(true,`Preparando 0 de ${ready.length} imagens...`);try{const items=[];for(let i=0;i<ready.length;i++){const row=ready[i],num=state.pairs.indexOf(row)+1; loadingStep('Gerando comparativos…',`${i+1} de ${ready.length} imagens (1068 × 1473 px)`,i,ready.length);items.push({name:`comparativos/${String(num).padStart(2,'0')}_${slug(row.name)}_antes-depois.png`,blob:await comparisonPNG(row,num)});await new Promise(r=>setTimeout(r,0));}items.push({name:'LEIA-ME.txt',blob:new Blob(['eCatalogos Auditoria\nFormato de cada PNG: 1068 x 1473 pixels\nProjeto: '+current().name+'\n'],{type:'text/plain'})});loadingStep('Montando arquivo ZIP…','Reunindo os comparativos para baixar.');download(await makeZip(items),`${slug(current().name)}_comparativos.zip`);toast(`${ready.length} comparativos exportados em ZIP.`);}catch(e){toast('Falha na exportação: '+e.message,true);}finally{busy(false);}}
+async function exportAll(){
+ if(!canUseStudio()||state.busy)return;
+ const mode=$('galleryExportMode').value,ready=galleryExportRows(),store=state.db,projectName=current().name;
+ if(!ready.length)return toast('Nenhuma imagem disponível para baixar com os filtros selecionados.',true);
+ busy(true,`Preparando 0 de ${ready.length} imagens...`);
+ try{
+  const items=[];
+  for(let i=0;i<ready.length;i++){
+   if(state.db!==store)return;
+   const row=ready[i],num=state.pairs.indexOf(row)+1,label=mode==='before'?'antes':'depois';
+   loadingStep('Preparando PNGs…',`${i+1} de ${ready.length} imagens`,i,ready.length);
+   const name=mode==='comparison'?`comparativos/${String(num).padStart(2,'0')}_${slug(row.name)}_antes-depois.png`:`${label}/${String(num).padStart(2,'0')}_${slug(row.name)}_${label}.png`;
+   const blob=mode==='comparison'?await comparisonPNG(row,num):await originalPNG(row[mode+'Blob']);
+   items.push({name,blob});
+   await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  const format=mode==='comparison'?'Comparativos: 1068 x 1473 pixels':`Imagens ${mode==='before'?'antes':'depois'}: PNG nas dimensões originais`;
+  items.push({name:'LEIA-ME.txt',blob:new Blob([`eCatalogos Auditoria\n${format}\nExportação dos produtos filtrados.\nProjeto: ${projectName}\n`],{type:'text/plain'})});
+  loadingStep('Montando arquivo ZIP…','Reunindo os PNGs dos produtos filtrados.');
+  const zip=await makeZip(items);
+  if(state.db!==store)return;
+  download(zip,`${slug(projectName)}_${mode==='comparison'?'comparativos':mode==='before'?'antes':'depois'}_filtrados.zip`);
+  toast(`${ready.length} PNG(s) dos produtos filtrados exportados em ZIP.`);
+ }catch(error){toast('Falha na exportação: '+error.message,true);}
+ finally{if(state.db===store)busy(false);}
+}
 async function exportBackup(){if(!canUseStudio())return;if(!state.pairs.length)return toast('Adicione algum produto antes de criar um backup.',true);busy(true,'Preparando backup com as imagens originais...');try{const files=[],manifest={kind:'ecatalogos-image-studio',appName:'eCatalogos Auditoria',version:2,projectName:current().name,exportedAt:new Date().toISOString(),items:[]};for(const [index,p] of state.pairs.entries()){const id=String(index+1).padStart(3,'0'),it={name:p.name,order:index,before:null,after:null,reviewStatus:p.reviewStatus||null,reviewedAt:p.reviewedAt||null,isUsed:Boolean(p.isUsed),usedIn:p.usedIn||'',usageTools:normalizeUsageTools(p.usageTools)};for(const slot of ['before','after']){const blob=p[slot+'Blob'];if(!blob)continue;const path=`imagens/${id}_${slot==='before'?'antes':'depois'}.${extFor(blob,p[slot+'Name'])}`;files.push({name:path,blob});it[slot]=path;}manifest.items.push(it);}files.unshift({name:'projeto.json',blob:new Blob([JSON.stringify(manifest,null,2)],{type:'application/json'})});download(await makeZip(files),`${slug(current().name)}_backup.ecproj`);toast('Backup salvo. Guarde o arquivo para recuperar seu trabalho.');}catch(e){toast('Não foi possível exportar o backup: '+e.message,true);}finally{busy(false);}}
 async function readZip(file){const array=await file.arrayBuffer(),data=new Uint8Array(array),v=new DataView(array),dec=new TextDecoder();let end=-1;for(let i=array.byteLength-22;i>=Math.max(0,array.byteLength-65557);i--){if(v.getUint32(i,true)===0x06054b50){end=i;break;}}if(end<0)throw Error('ZIP inválido ou incompleto.');const count=v.getUint16(end+10,true),start=v.getUint32(end+16,true),entries=[];let pos=start;for(let i=0;i<count;i++){if(v.getUint32(pos,true)!==0x02014b50)throw Error('Diretório ZIP inválido.');const method=v.getUint16(pos+10,true),size=v.getUint32(pos+20,true),nl=v.getUint16(pos+28,true),el=v.getUint16(pos+30,true),cl=v.getUint16(pos+32,true),offset=v.getUint32(pos+42,true),name=dec.decode(data.subarray(pos+46,pos+46+nl));pos+=46+nl+el+cl;if(name.endsWith('/'))continue;entries.push({name,method,size,offset});}if(entries.length>1500)throw Error('O ZIP contém arquivos demais.');const map=new Map();for(const e of entries){const lp=e.offset;if(v.getUint32(lp,true)!==0x04034b50)throw Error('Arquivo ZIP com cabeçalho inválido.');const p=lp+30+v.getUint16(lp+26,true)+v.getUint16(lp+28,true),payload=data.slice(p,p+e.size);let blob;if(e.method===0)blob=new Blob([payload]);else if(e.method===8){if(typeof DecompressionStream==='undefined')throw Error('Atualize para Chrome/Edge para importar ZIPs compactados.');const stream=new Blob([payload]).stream().pipeThrough(new DecompressionStream('deflate-raw'));blob=await new Response(stream).blob();}else throw Error('Método de ZIP não suportado: '+e.method);map.set(e.name,blob);if(state.busy)loadingStep('Lendo arquivos do ZIP…',`${map.size} de ${entries.length} arquivos`,map.size,entries.length);}return map;}
 function parseFileName(filename){const n=(filename.split('/').pop()||'').replace(/\.[^.]+$/,'');let normal=n.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[\s.-]+/g,'_');const match=normal.match(/^(.*?)_?(antes|depois|before|after|original|editada|editado)$/);if(!match||!match[1])return null;const slot=['antes','before','original'].includes(match[2])?'before':'after';const key=match[1].replace(/_+$/,'');if(!key)return null;const title=/^\d+$/.test(key)?`Produto ${key}`:key.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());return {key,slot,title};}
@@ -127,8 +174,8 @@ function setView(view){
   const review=view==='review';
   $('studioShell').hidden=review;
   $('reviewView').hidden=!review;
-  if(review){renderReview();}
-  else{clearUrls('reviewURLs');}
+  if(review){for(const detail of $('gallery').querySelectorAll('.gallery-usage[open]')){detail.open=false;detail.querySelector('.gallery-usage-editor').replaceChildren();}renderReview();}
+  else{clearUrls('reviewURLs');$('reviewCards').replaceChildren();render();}
   window.scrollTo(0,0);
 }
 function navigateToReview(){if(location.hash!=='#revisao')location.hash='revisao';else setView('review');}
@@ -146,11 +193,11 @@ function renderReviewSummary(){
  $('reviewSummary').innerHTML=`<span><strong>${state.pairs.length}</strong> produtos</span><span><strong>${n.approved}</strong> aprovados</span><span><strong>${n.rejected}</strong> reprovados</span><span><strong>${n.pending}</strong> não avaliados</span><span class="usage-summary"><strong>${n.unused}</strong> ${n.unused===1?'aprovada não usada':'aprovadas não usadas'}</span><span class="usage-summary"><strong>${n.used}</strong> ${n.used===1?'aprovada usada':'aprovadas usadas'}</span>`;
 }
 function reviewLabel(status){return status==='approved'?'✓ Aprovado':status==='rejected'?'✕ Reprovado':'Aguardando avaliação';}
-function usageMarkup(row){
+function usageMarkup(row,context='review'){
  const approved=row.reviewStatus==='approved',available=state.db?.usageSupported===true;
  const enabled=approved&&available,used=approved&&Boolean(row.isUsed),toolsAvailable=state.db?.usageToolsSupported===true;
  const tools=normalizeUsageTools(row.usageTools);
- const whereId=`usage-where-${row.id}`;
+ const whereId=`${context}-usage-where-${row.id}`;
  const label=used?`Aprovada · Usada em ${usageToolLabels(tools)||row.usedIn}`:'Aprovada · Não usada';
  return `<form class="review-usage" data-usage-form>
   <div class="usage-heading"><strong>Uso da imagem</strong>${approved?`<span class="usage-status ${used?'is-used':''}" aria-live="polite">${esc(label)}</span>`:''}</div>
@@ -172,13 +219,15 @@ function updateReviewUsage(row){
  if(card)card.querySelector('.review-usage').outerHTML=usageMarkup(row);
 }
 async function saveReviewUsage(form){
- const row=state.pairs.find(p=>p.id===form.closest('.review-pair').dataset.id);
+ const row=state.pairs.find(p=>p.id===form.closest('.review-pair,.pair-card').dataset.id);
  if(!row||row.reviewStatus!=='approved')throw new Error('Aprove a imagem antes de registrar seu uso.');
  const store=state.db;
  const saved=await store.setUsage(row.id,form.elements.isUsed.checked,form.elements.usedIn.value,Array.from(form.querySelectorAll('[name=usageTools]:checked'),input=>input.value));
  if(state.db!==store||!canUseStudio())return;
- Object.assign(row,saved);renderReviewSummary();
- if(['approved-used','approved-unused'].includes(state.reviewFilter)||state.reviewFilter.startsWith('tool:'))renderReview();else updateReviewUsage(row);
+ Object.assign(row,saved);render();renderReviewSummary();
+ if(!$('reviewView').hidden){
+  if(['approved-used','approved-unused'].includes(state.reviewFilter)||state.reviewFilter.startsWith('tool:'))renderReview();else updateReviewUsage(row);
+ }
  toast(row.isUsed?'Uso da imagem salvo.':'Imagem marcada como não usada.');
 }
 function renderReview(){
@@ -238,7 +287,7 @@ function hook(){
  $('addProject').onclick=()=>{const name=prompt('Nome da nova coleção:',`Coleção ${state.projects.length+1}`);if(name?.trim())run(()=>newProject(name.trim()));};$('renameProject').onclick=()=>run(renameProject);$('deleteProject').onclick=()=>run(deleteProject);$('toggleSidebar').onclick=()=>$('sidebar').classList.toggle('open');
  $('openReview').onclick=navigateToReview; $('reviewSidebar').onclick=navigateToReview; $('backToStudio').onclick=navigateToStudio;window.addEventListener('hashchange',syncViewFromHash);
  $('reviewCards').addEventListener('click',e=>{if(!canUseStudio()||state.busy)return;const original=e.target.closest('[data-download]');if(original)return downloadOriginal(original.closest('.review-pair').dataset.id,original.dataset.download);if(e.target.closest('#reviewEmptyBack'))return navigateToStudio();const btn=e.target.closest('[data-choice]');const id=btn?.closest('.review-pair')?.dataset.id;if(btn&&id)run(()=>setReviewDecision(id,btn.dataset.choice));});
- $('reviewCards').addEventListener('change',e=>{
+ for(const host of [$('reviewCards'),$('gallery')])host.addEventListener('change',e=>{
   if(!['isUsed','usageTools'].includes(e.target.name))return;
   const form=e.target.form,used=form.elements.isUsed.checked;
   const field=form.elements.usedIn,tools=form.querySelector('.usage-tools');
@@ -247,12 +296,16 @@ function hook(){
   tools.disabled=!used||tools.dataset.toolsSupported!=='true';
   if(e.target.name==='isUsed'&&used)field.focus();
  });
- $('reviewCards').addEventListener('submit',e=>{
+ for(const host of [$('reviewCards'),$('gallery')])host.addEventListener('submit',e=>{
   const form=e.target.closest('[data-usage-form]');if(!form)return;e.preventDefault();
   run(()=>saveReviewUsage(form),'Salvando uso da imagem...');
  });
  $('reviewFilter').addEventListener('change',e=>{state.reviewFilter=e.target.value;renderReview();});
  $('projectList').onclick=e=>{const el=e.target.closest('[data-project]');if(el)run(()=>chooseProject(el.dataset.project),'Carregando projeto...');};$('search').addEventListener('input',render);
+ $('galleryToolFilters').innerHTML=USAGE_TOOLS.map(tool=>`<label>${esc(tool.label)}<select data-gallery-tool="${tool.id}" aria-label="Uso em ${esc(tool.label)}"><option value="all">Qualquer uso</option><option value="used">Usada</option><option value="unused">Não usada</option></select></label>`).join('');
+ $('galleryStatus').onchange=render;$('galleryToolFilters').onchange=render;$('galleryExportMode').onchange=updateGalleryExport;
+ $('clearGalleryFilters').onclick=()=>{resetGalleryFilters();render();};
+ $('gallery').addEventListener('toggle',e=>{const detail=e.target;if(!detail.matches('.gallery-usage'))return;const editor=detail.querySelector('.gallery-usage-editor');if(detail.open&&canUseStudio()){const row=state.pairs.find(p=>p.id===detail.closest('.pair-card').dataset.id);editor.innerHTML=usageMarkup(row,'gallery');}else editor.replaceChildren();},true);
  $('newPair').onclick=()=>showModal();$('bulkImport').onclick=()=>$('bulkFiles').click();$('exportAll').onclick=exportAll;$('downloadBackup').onclick=exportBackup;$('uploadBackup').onclick=()=>$('archiveFile').click();$('printGallery').onclick=()=>window.print();
  $('gallery').onclick=async e=>{const el=e.target.closest('[data-action]');if(!el||state.busy||!canUseStudio())return;const action=el.dataset.action,id=el.closest('[data-id]')?.dataset.id;if(action==='new')return showModal();if(action==='edit')return showModal(id);if(action==='delete')return run(()=>deletePair(id));if(action==='download')return exportOne(id);if(action==='download-before'||action==='download-after')return downloadOriginal(id,action.slice('download-'.length));if(action==='up'||action==='down')return run(()=>movePair(id,action==='up'?-1:1));};
  $('closeModal').onclick=closeModal;$('cancelModal').onclick=closeModal;$('modal').addEventListener('click',e=>{if(e.target===$('modal')&&!state.busy)closeModal();});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!state.busy)closeModal();});$('pairForm').addEventListener('submit',e=>{e.preventDefault();run(()=>savePair(e),'Salvando comparativo...',$('savePair'));});
@@ -293,7 +346,7 @@ function lockStudio() {
  $('projectList').replaceChildren();$('gallery').replaceChildren();$('reviewCards').replaceChildren();
  $('reviewSummary').replaceChildren();$('projectTitle').textContent='Comparativos';
  ['countPairs','countReady','countPending'].forEach(id=>$(id).textContent='0');
- $('galleryCount').textContent='(0)';$('search').value='';$('authEmail').value='';$('authPassword').value='';
+ $('galleryCount').textContent='(0)';resetGalleryFilters();$('authEmail').value='';$('authPassword').value='';
  $('beforePreview').removeAttribute('src');$('afterPreview').removeAttribute('src');
  ['beforeFile','afterFile','bulkFiles','archiveFile'].forEach(id=>$(id).value='');
 }

@@ -54,3 +54,15 @@ Para habilitar no banco já existente, execute no SQL Editor do Supabase:
 Execute também se já habilitou as três ferramentas anteriores. O script
 preserva as ferramentas e os locais de uso registrados e pode ser repetido.
 Depois, publique a versão atualizada na Vercel e recarregue o app.
+
+FILTROS E DOWNLOAD EM LOTE NA GALERIA
+Combine “Aprovadas” com “Não usada” nas ferramentas desejadas, como B2B
+e Atacado de modas. Ao combinar filtros, todos precisam ser atendidos.
+Escolha “Somente antes”, “Somente depois” ou “Comparativos antes e depois”
+e clique em “Exportar PNGs em ZIP”. O ZIP inclui somente os produtos do
+filtro que tenham a imagem escolhida. As imagens separadas são baixadas
+em PNG nas dimensões originais. Os comparativos mantêm 1068 x 1473 px.
+No cartão de um produto aprovado, abra “Uso da imagem” para editar as
+ferramentas e salvar o uso sem entrar na revisão.
+O backup continua incluindo o projeto inteiro. Não há novo SQL para
+estes filtros; eles usam a estrutura de uso já configurada.

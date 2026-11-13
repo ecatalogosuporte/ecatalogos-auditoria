@@ -18,6 +18,19 @@ async function downloaded(page, selector) {
   const file = await pending;
   return { name: file.suggestedFilename(), bytes: await readFile(await file.path()) };
 }
+function zipEntries(bytes) {
+  const entries = new Map();
+  let offset = 0;
+  while (bytes.readUInt32LE(offset) === 0x04034b50) {
+    expect(bytes.readUInt16LE(offset + 8)).toBe(0);
+    const size = bytes.readUInt32LE(offset + 18), nameLength = bytes.readUInt16LE(offset + 26), extra = bytes.readUInt16LE(offset + 28);
+    const name = bytes.subarray(offset + 30, offset + 30 + nameLength).toString('utf8');
+    const start = offset + 30 + nameLength + extra;
+    entries.set(name, bytes.subarray(start, start + size));
+    offset = start + size;
+  }
+  return entries;
+}
 async function addPair(page, name = 'Sapato de couro') {
   await page.locator('#newPair').click();
   await page.locator('#productName').fill(name);
@@ -655,4 +668,115 @@ test('before tools are enabled the existing usage description keeps working and 
   await expect(page.locator('.usage-status')).toContainText('B2B');
   await expect(page.locator('[name="usedIn"]')).toHaveValue('Carrossel do site já cadastrado');
   expect(backend.pairs[0].usage_tools).toEqual(['b2b']);
+});
+
+test('gallery combines absence filters and exports only matching before, after or comparison PNGs', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page); await addPair(page);
+  const base = structuredClone(backend.pairs[0]);
+  const definitions = [
+    ['Novo', 'approved', []], ['B2B', 'approved', ['b2b']],
+    ['Atacado', 'approved', ['atacado-de-modas']], ['Ambos', 'approved', ['b2b', 'atacado-de-modas']],
+    ['Reprovado', 'rejected', []], ['Pendente', null, []], ['Só Antes', 'approved', []]
+  ];
+  backend.pairs = definitions.map(([name, status, tools], index) => ({ ...base, id: `fixture-${index}`, position: index,
+    name: `Produto ${name}`, review_status: status, is_used: tools.length > 0, used_in: '', usage_tools: tools,
+    after_path: index === 6 ? null : base.after_path }));
+  const jpeg = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 3; canvas.height = 2;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#f00'; ctx.fillRect(0, 0, 3, 2);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  });
+  backend.pairs[1].before_path = base.before_path.replace(/[^/]+$/, 'converted.jpg');
+  backend.objects.set(`studio-images/${backend.pairs[1].before_path}`, { body: Buffer.from(jpeg), contentType: 'image/jpeg' });
+  await page.reload();
+  await expect(page.locator('.pair-card')).toHaveCount(7);
+  await page.locator('#galleryStatus').selectOption('approved');
+  await page.locator('[data-gallery-tool="b2b"]').selectOption('unused');
+  await expect(page.locator('.pair-name')).toHaveText(['Produto Novo', 'Produto Atacado', 'Produto Só Antes']);
+  await page.locator('#galleryExportMode').selectOption('before');
+  await expect(page.locator('#galleryFilterSummary')).toContainText('3 PNG(s)');
+  let entries = zipEntries((await downloaded(page, '#exportAll')).bytes);
+  expect([...entries.keys()].filter(name => name.endsWith('.png'))).toEqual([
+    'antes/01_produto-novo_antes.png', 'antes/03_produto-atacado_antes.png', 'antes/07_produto-so-antes_antes.png'
+  ]);
+  expect(entries.get('antes/01_produto-novo_antes.png')).toEqual(await readFile(logo));
+  expect(entries.get('LEIA-ME.txt').toString()).toContain('dimensões originais');
+  await page.locator('#galleryExportMode').selectOption('after');
+  await expect(page.locator('#galleryFilterSummary')).toContainText('2 PNG(s)');
+  entries = zipEntries((await downloaded(page, '#exportAll')).bytes);
+  expect([...entries.keys()].filter(name => name.endsWith('.png'))).toEqual(['depois/01_produto-novo_depois.png', 'depois/03_produto-atacado_depois.png']);
+  expect(entries.get('depois/01_produto-novo_depois.png')).toEqual(pixel);
+  await page.locator('[data-gallery-tool="atacado-de-modas"]').selectOption('unused');
+  await expect(page.locator('.pair-name')).toHaveText(['Produto Novo', 'Produto Só Antes']);
+  await page.locator('#galleryExportMode').selectOption('comparison');
+  entries = zipEntries((await downloaded(page, '#exportAll')).bytes);
+  const pngNames = [...entries.keys()].filter(name => name.endsWith('.png'));
+  expect(pngNames).toEqual(['comparativos/01_produto-novo_antes-depois.png']);
+  expect(entries.get(pngNames[0]).readUInt32BE(16)).toBe(1068);
+  expect(entries.get(pngNames[0]).readUInt32BE(20)).toBe(1473);
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('.gallery-filters')).toBeHidden();
+  await expect(page.locator('.pair-card')).toHaveCount(2);
+  await page.emulateMedia({ media: 'screen' });
+  await page.locator('[data-gallery-tool="b2b"]').selectOption('used');
+  await page.locator('#search').fill('B2B');
+  await expect(page.locator('.pair-name')).toHaveText(['Produto B2B']);
+  await page.locator('#galleryExportMode').selectOption('before');
+  entries = zipEntries((await downloaded(page, '#exportAll')).bytes);
+  const converted = entries.get('antes/02_produto-b2b_antes.png');
+  expect(converted.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  expect(converted.readUInt32BE(16)).toBe(3); expect(converted.readUInt32BE(20)).toBe(2);
+  await page.locator('.gallery-filters').screenshot({ path: 'test-results/gallery-filters-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.gallery-filters').screenshot({ path: 'test-results/gallery-filters-mobile.png', animations: 'disabled', style: '.toast{visibility:hidden!important}' });
+  await page.locator('#galleryStatus').selectOption('rejected');
+  await expect(page.locator('.pair-card')).toHaveCount(0);
+  await expect(page.locator('#exportAll')).toBeDisabled();
+  await page.locator('#clearGalleryFilters').click();
+  await expect(page.locator('.pair-card')).toHaveCount(7);
+  await expect(page.locator('#search')).toHaveValue('');
+  await expect(page.locator('[data-gallery-tool="b2b"]')).toHaveValue('all');
+});
+
+test('products edit tool usage directly in the gallery, preserve failed drafts and leave absence filters when saved', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('.gallery-usage summary').click();
+  await expect(page.locator('#gallery [name="isUsed"]')).toBeDisabled();
+  await expect(page.locator('.gallery-usage-editor')).toContainText('Aprove a imagem');
+  await page.locator('#openReview').click();
+  await page.locator('[data-choice="approved"]').click();
+  await page.locator('#backToStudio').click();
+  await page.locator('#galleryStatus').selectOption('approved');
+  await page.locator('[data-gallery-tool="b2b"]').selectOption('unused');
+  await page.locator('.gallery-usage summary').click();
+  await page.locator('#gallery [name="isUsed"]').check();
+  await page.locator('#gallery [name="usageTools"][value="b2b"]').check();
+  await page.locator('#gallery [name="usageTools"][value="atacado-de-modas"]').check();
+  await page.locator('#gallery [name="usedIn"]').fill('Catálogo verão');
+  backend.rejectUsage = true;
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Não foi possível salvar');
+  await expect(page.locator('#gallery [name="usageTools"][value="b2b"]')).toBeChecked();
+  await expect(page.locator('#gallery [name="usedIn"]')).toHaveValue('Catálogo verão');
+  expect(backend.pairs[0].is_used).toBe(false);
+  backend.rejectUsage = false;
+  await page.getByRole('button', { name: 'Salvar uso', exact: true }).click();
+  await expect(page.locator('.pair-card')).toHaveCount(0);
+  expect(backend.pairs[0].usage_tools).toEqual(['b2b', 'atacado-de-modas']);
+  expect(backend.uploads).toBe(2);
+  await page.locator('[data-gallery-tool="b2b"]').selectOption('used');
+  await expect(page.locator('.pair-card')).toHaveCount(1);
+  await expect(page.locator('.gallery-usage-badge')).toContainText('B2B, Atacado de modas');
+  await page.reload();
+  await page.locator('.gallery-usage summary').click();
+  await expect(page.locator('#gallery [name="usageTools"][value="b2b"]')).toBeChecked();
+  await expect(page.locator('#gallery [name="usageTools"][value="atacado-de-modas"]')).toBeChecked();
+  await expect(page.locator('#gallery [name="usedIn"]')).toHaveValue('Catálogo verão');
+  await page.locator('#openReview').click();
+  await expect(page.locator('.usage-status')).toContainText('B2B, Atacado de modas');
+  await expect(page.locator('[name="isUsed"]')).toHaveCount(1);
 });

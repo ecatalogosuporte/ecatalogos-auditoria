@@ -44,10 +44,22 @@
       <div class="hero-heading"><div><h1 id="projectTitle">Comparativos</h1><p>Gerencie seus produtos e monte apresentações consistentes em segundos.</p></div><div class="hero-actions"><button class="button light small" id="renameProject" aria-label="Renomear projeto"><span class="action-icon" aria-hidden="true">✎</span> <span>Renomear projeto</span></button><button class="button light small" id="deleteProject" title="Excluir projeto" aria-label="Excluir projeto"><span class="action-icon" aria-hidden="true">×</span> <span>Excluir</span></button></div></div>
       <div class="metrics"><div class="metric"><div class="metric-icon">▧</div><div><div class="metric-label">PRODUTOS</div><div class="metric-number" id="countPairs">0</div></div></div><div class="metric"><div class="metric-icon success">✓</div><div><div class="metric-label">PRONTOS PARA EXPORTAR</div><div class="metric-number" id="countReady">0</div></div></div><div class="metric"><div class="metric-icon muted">◷</div><div><div class="metric-label">AGUARDANDO IMAGENS</div><div class="metric-number" id="countPending">0</div></div></div></div>
       <div class="section-title"><div><div class="section-eyebrow">SEUS ARQUIVOS</div><h2>Galeria de comparações <span id="galleryCount">(0)</span></h2></div><div class="section-actions"><button class="button review-launch" id="openReview">◉ <span>Visualizar e aprovar</span></button><button class="button light" id="bulkImport">⇧ <span>Importar imagens</span></button><button class="button primary" id="newPair">＋ <span>Novo comparativo</span></button></div></div>
-      <div class="filterbar"><div class="search-wrap"><span>⌕</span><input type="search" id="search" placeholder="Buscar produto pelo nome..." aria-label="Buscar produto"></div><div class="filterbar-right"><button class="button white" id="printGallery" title="Imprimir ou salvar PDF" aria-label="Imprimir ou salvar PDF">▣ <span>Imprimir / PDF</span></button><button class="button dark" id="exportAll" aria-label="Exportar PNGs em ZIP">⇩ <span>Exportar PNGs em ZIP</span></button></div></div>
+      <div class="filterbar"><div class="search-wrap"><span>⌕</span><input type="search" id="search" placeholder="Buscar produto pelo nome..." aria-label="Buscar produto"></div><div class="filterbar-right"><button class="button white" id="printGallery" title="Imprimir ou salvar PDF" aria-label="Imprimir ou salvar PDF">▣ <span>Imprimir / PDF</span></button></div></div>
+      <section class="gallery-filters" aria-label="Filtros da galeria">
+        <div class="gallery-filter-heading"><strong>Filtrar produtos</strong><button type="button" class="button light small" id="clearGalleryFilters">Limpar filtros</button></div>
+        <div class="gallery-filter-grid">
+          <label>Avaliação<select id="galleryStatus" aria-label="Avaliação dos produtos"><option value="all">Todas</option><option value="approved">Aprovadas</option><option value="rejected">Reprovadas</option><option value="pending">Não avaliadas</option><option value="approved-used">Aprovadas — usadas</option><option value="approved-unused">Aprovadas — não usadas</option></select></label>
+          <div id="galleryToolFilters" class="gallery-tool-filters"></div>
+        </div>
+        <p class="gallery-filter-help">Combine os filtros: por exemplo, “Aprovadas” e “Não usada” em B2B. Ao filtrar várias ferramentas, o produto deve atender a todas as condições.</p>
+      </section>
+      <div class="gallery-export-bar">
+        <div><label for="galleryExportMode">Baixar os produtos filtrados</label><select id="galleryExportMode"><option value="comparison">Comparativos antes e depois</option><option value="before">Somente antes</option><option value="after">Somente depois</option></select><p id="galleryExportHint">Comparativos em PNG de 1068 × 1473 px.</p></div>
+        <div class="gallery-export-actions"><p id="galleryFilterSummary" role="status" aria-live="polite"></p><button class="button dark" id="exportAll" aria-label="Exportar PNGs em ZIP">⇩ <span>Exportar PNGs em ZIP</span></button></div>
+      </div>
       <div class="notice" id="notice" hidden></div>
       <div class="gallery" id="gallery"><div class="empty-state"><h3>Abrindo o eCatalogos Auditoria…</h3><p>Carregando seus projetos e comparativos.</p></div></div>
-      <div class="end-note">Criado para o fluxo de imagens do eCatalogos Auditoria <span>•</span> Exportações no formato 1068 × 1473 px</div>
+      <div class="end-note">eCatalogos Auditoria <span>•</span> Comparativos: 1068 × 1473 px <span>•</span> Antes ou depois: dimensões originais</div>
     </div>
   </main>
 </div>

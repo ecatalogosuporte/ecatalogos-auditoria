@@ -7,6 +7,7 @@ App de comparativos antes/depois, revisão e aprovação de produtos. Frontend e
 - **Armazenamento na nuvem:** login por e-mail/senha, projetos e aprovações no Postgres e imagens em um bucket privado. Cada conta acessa seus próprios projetos. O trabalho salvo pode ser aberto em outro dispositivo usando a mesma conta.
 - **Colar imagens:** no cadastro do comparativo, clique no quadrado “Antes” ou “Depois” (ou selecione a área com Tab) e use **Ctrl+V**, ou **⌘V** no Mac. O quadrado selecionado fica destacado e o destino não muda ao passar o mouse sobre outra área. O botão interno **Escolher do computador** abre o seletor de arquivos; arrastar e soltar também continua disponível. Aceita imagens e capturas da área de transferência, com os mesmos limites dos uploads.
 - **Baixar antes** e **Baixar depois** salvam cada imagem separadamente, preservando o arquivo e o nome originais. Funcionam na galeria e na revisão, mesmo quando só uma imagem foi adicionada. Exportações PNG em **1068 × 1473 px**, ZIP, backup e impressão/PDF continuam disponíveis.
+- **Filtros e download em lote:** combine avaliação, busca por nome e uso/não uso em cada ferramenta. O ZIP pode conter somente o antes, somente o depois ou os comparativos dos produtos filtrados. O uso também pode ser editado diretamente no cartão de cada produto.
 - Logo em `public/logo-ecatalogos.png`, também usada como favicon.
 
 ## Rodar no computador
@@ -56,6 +57,14 @@ Em projetos Supabase que já estavam configurados, execute [`supabase/migrations
 A chave pública do app não tem permissão para alterar tabelas, então a atualização precisa ser executada pelo responsável pelo Supabase. Depois, publique o código atualizado na Vercel e recarregue a página. Até executar o SQL, o registro de uso por texto continua funcionando nos projetos que já o tinham habilitado; somente as novas ferramentas ficam desabilitadas. Se os campos básicos de uso também estiverem ausentes, todos os controles de uso ficam desabilitados, mas a galeria e as aprovações continuam disponíveis.
 
 O uso, as ferramentas e os detalhes são preservados em backups `.ecproj` e ao renomear um produto. Substituir uma imagem, remover sua aprovação ou reprovar o comparativo limpa o registro de uso; a nova imagem precisa ser aprovada e ter seu uso registrado novamente. O salvamento de uso altera somente esses campos, preservando nomes e imagens editados por outro revisor. Os locais informados podem ter até 300 caracteres.
+
+## Filtrar a galeria e baixar PNGs em lote
+
+Na galeria, escolha a **Avaliação** e, em cada ferramenta, **Qualquer uso**, **Usada** ou **Não usada**. Os filtros são combinados: para obter aprovadas que ainda não estão em B2B nem no Atacado de modas, selecione **Aprovadas** e **Não usada** nas duas ferramentas. A busca por nome também participa dessa seleção. **Limpar filtros** restaura a lista completa.
+
+Em **Baixar os produtos filtrados**, escolha **Somente antes**, **Somente depois** ou **Comparativos antes e depois**, confira a quantidade e clique em **Exportar PNGs em ZIP**. Os comparativos têm 1068 × 1473 px; as imagens separadas mantêm as dimensões originais e são convertidas para PNG quando necessário. Produtos sem a imagem escolhida ficam fora do ZIP. A impressão/PDF também segue os produtos visíveis na galeria. O backup do projeto continua incluindo todos os produtos.
+
+Para registrar as ferramentas em um produto, abra **Uso da imagem → Editar uso**, marque as opções e clique em **Salvar uso**. Isso exige uma imagem aprovada, como na revisão. Ao salvar, os filtros e contadores são atualizados; se o produto deixar de atender ao filtro, ele sai da lista. Esse recurso usa os campos de uso existentes e não exige outra migração SQL.
 
 ## Login fictício `ecatalogos@admin`
 
