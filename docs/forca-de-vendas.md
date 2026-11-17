@@ -46,7 +46,7 @@ As variáveis estão descritas em `.env.example`. A configuração local está n
 - `FORCA_API_BASE`: URL da API pública. Localmente foi validado o ambiente de desenvolvimento.
 - `FORCA_API_EMAIL` e `FORCA_API_PASSWORD`: credenciais da integração.
 - `FORCA_COMPANY_KEY`: chave da empresa, no exemplo `2000`.
-- `FORCA_ALLOWED_USER_IDS`: IDs dos usuários do Supabase Auth autorizados a publicar nesse catálogo, separados por vírgula. O envio fica bloqueado para os demais usuários, mesmo que consigam criar uma conta na Auditoria.
+- Qualquer usuário logado no Auditoria pode publicar suas próprias imagens aprovadas. A variável antiga `FORCA_ALLOWED_USER_IDS` não é mais utilizada, mesmo que ainda esteja definida na Vercel.
 
 O backend verifica a sessão do Supabase, o proprietário do comparativo e a aprovação, e baixa a imagem do Storage privado. Não utiliza chave `service_role`. Não é necessária migração SQL adicional: o uso é registrado nos campos existentes. O formulário exige acesso ao servidor (`npm run dev` ou Vercel); o HTML portátil mantém os demais recursos, mas não hospeda essa API.
 
@@ -65,3 +65,19 @@ Em 17/11/2026, a versão local do app cadastrou **Pijama azul**, referência **7
 O cadastro inclui `deadlineErpId` e `promptDelivery: true`. Também executa `PATCH /deadlines/products` e exige confirmação de que o produto foi atualizado. Uma consulta posterior valida o prazo, a pronta entrega e a visibilidade; falhas nessa etapa não registram um envio concluído. Na retomada, a visibilidade no Força de vendas pode ser reativada preservando a configuração de B2B.
 
 Os dois pijamas de exemplo, referências `90.00.001` e `77.56.159`, foram vinculados ao prazo **PE** e consultados novamente em 17/11/2026. Ambos retornaram prazo ERP `1`, pronta entrega habilitada e visibilidade no Força de vendas habilitada.
+
+
+## Galeria com zoom automático
+
+Cada envio prepara quatro imagens da mesma fonte: a principal completa e três recortes com níveis de zoom e posições variadas. Os recortes mantêm as proporções da imagem. O sorteio é estável para o mesmo produto e arquivo, de modo que uma retomada conserva os mesmos detalhes.
+
+Os arquivos usam as ordens 1, 2, 3 e 4, com nomes `<ERP do produto>--1.jpg` até `<ERP do produto>--4.jpg`. O envio é separado por arquivo para respeitar o limite do servidor. Cada imagem precisa ter o vínculo e a ordem confirmados pela API antes de concluir o cadastro.
+
+Os detalhes do Pijama azul, referência **77.56.159**, foram enviados e confirmados nas ordens 2, 3 e 4, complementando a foto principal existente.
+
+![Principal e recortes com zoom do mesmo pijama](forca-zoom-gallery.jpg)
+
+
+Se a API responder que uma ordem já tem imagem, a integração mantém essa foto e completa somente as posições faltantes. Não substitui fotos existentes. O aviso de retomada e a confirmação informam quando a galeria já continha imagens. O conflito só é aceito como posição preenchida quando a resposta identifica exatamente a ordem enviada; outros erros continuam bloqueando a conclusão.
+
+A prévia acima ilustra os recortes gerados pela versão atual. As fotos de detalhe já enviadas anteriormente ao exemplo continuam no produto, conforme a regra de preservação de imagens existentes.

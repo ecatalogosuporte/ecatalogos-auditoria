@@ -12,11 +12,11 @@ App de comparativos antes/depois, revisão e aprovação de produtos. Frontend e
 
 ## Enviar produtos ao Força de vendas
 
-Aprove o comparativo e clique em **Força de vendas**, no cartão da galeria ou na revisão. Confira a imagem antes/depois, informe um preço único e escolha marca, tipo, gênero, cor e categoria. Os tamanhos começam como **P, M, G e GG**. O cadastro cria o produto e os SKUs, grava o preço na **Tabela de Preços Padrão (`erp-feiras`)** e envia a foto.
+Aprove o comparativo e clique em **Força de vendas**, no cartão da galeria ou na revisão. Confira a imagem antes/depois, informe um preço único e escolha marca, tipo, gênero, cor e categoria. Os tamanhos começam como **P, M, G e GG**. O cadastro cria o produto e os SKUs, grava o preço na **Tabela de Preços Padrão (`erp-feiras`)** e envia a foto principal junto de três recortes com zoom da mesma imagem. Os quatro arquivos aparecem na galeria e nas miniaturas. Produtos que já têm fotos recebem somente as posições faltantes.
 
 O prazo é sempre **PE**, com **Pronta entrega = Sim** e visibilidade habilitada no aplicativo. Esses valores aparecem preenchidos no formulário. Cada tamanho novo recebe **6.000 unidades** e um **código numérico de 16 dígitos**. A referência comercial segue **00.00.000**, com uma sugestão livre que pode ser editada. Após o envio completo, a imagem é marcada como usada em Força de vendas, preservando as outras ferramentas.
 
-Configure as variáveis privadas `FORCA_*` do [guia de integração](docs/forca-de-vendas.md) no servidor local ou na Vercel. Os usuários autorizados são definidos por `FORCA_ALLOWED_USER_IDS`. Não é necessário outro SQL. As credenciais não são incluídas no frontend ou no HTML portátil.
+Configure as variáveis privadas `FORCA_*` do [guia de integração](docs/forca-de-vendas.md) no servidor local ou na Vercel. Qualquer usuário logado pode cadastrar produtos usando suas próprias imagens aprovadas. Não é necessário outro SQL. As credenciais não são incluídas no frontend ou no HTML portátil.
 
 ## Rodar no computador
 

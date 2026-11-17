@@ -810,6 +810,7 @@ test('approved images create products through the app with one price, retained d
   await expect(page.locator('#forcaReference')).toHaveValue('90.00.123');
   await expect(page.locator('#forcaModal')).toContainText('6.000 por tamanho');
   await expect(page.locator('#forcaModal')).toContainText('Tabela de Preços Padrão');
+  await expect(page.locator('#forcaModal')).toContainText('3 recortes com zoom');
   await expect(page.locator('#forcaDeadline')).toHaveValue('PE');
   await expect(page.locator('#forcaDeadline')).not.toBeEditable();
   await expect(page.locator('#forcaPromptDelivery')).toHaveValue('Sim');
@@ -833,6 +834,7 @@ test('approved images create products through the app with one price, retained d
   await expect(page.locator('#forcaSuccessText')).toContainText('90.00.123');
   await expect(page.locator('#forcaSuccessText')).toContainText('Tabela de Preços Padrão');
   await expect(page.locator('#forcaSuccessText')).toContainText('Prazo de entrega: PE');
+  await expect(page.locator('#forcaSuccessText')).toContainText('3 detalhes com zoom enviados');
   await expect(page.locator('#forcaSuccessText')).toContainText('Pronta entrega: Sim');
   await page.locator('#forcaDone').click();
   await expect(page.locator('.usage-status')).toContainText('Força de vendas');

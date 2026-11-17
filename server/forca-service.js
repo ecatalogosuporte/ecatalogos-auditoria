@@ -1,5 +1,5 @@
 import { createHash, randomInt } from 'node:crypto';
-import sharp from 'sharp';
+import { prepareProductImages, PRODUCT_IMAGE_COUNT } from './forca-images.js';
 
 export class ForcaError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -66,6 +66,13 @@ export class ForcaClient {
     } catch { throw new ForcaError('O Força de vendas não respondeu. Tente novamente; o cadastro será retomado com os mesmos códigos.', 502); }
     if (response.status === 404 && notFound) return null;
     const data = await response.json().catch(() => null);
+    if (response.status === 409 && method === 'POST' && path === '/images' && body instanceof FormData) {
+      const filename = body.get('images')?.name;
+      const image = typeof filename === 'string' ? /^(.+)--([1-4])\.jpg$/.exec(filename) : null;
+      const occupied = /^Já existem imagens nas seguintes ordens:\s*([1-4])\./u.exec(data?.message || '');
+      // The provider confirms this exact position exists; retain it and fill gaps.
+      if (image && occupied && image[2] === occupied[1]) return [{ productErpId: image[1], order: Number(image[2]), path: filename, alreadyExists: true }];
+    }
     const stages = { '/products': 'de cadastro do produto', '/variants': 'da variante', '/skus': 'dos tamanhos', '/prices': 'dos preços na tabela padrão', '/images': 'da imagem', '/categories': 'da categoria', '/deadlines/products': 'do prazo de entrega', '/products/visible': 'da visibilidade no aplicativo' };
     if (!response.ok || response.status === 207) throw new ForcaError(path === '/auth' ? 'As credenciais do Força de vendas foram recusadas.' : `O Força de vendas recusou a etapa ${stages[path.split('?')[0]] || 'de consulta do catálogo'}. Revise os dados ou tente novamente.`, 502);
     return data;
@@ -128,13 +135,9 @@ export class ForcaClient {
     if (previous && (previous.productsReference || previous.reference) !== data.reference) throw new ForcaError(`Este comparativo já tem um cadastro na referência ${previous.productsReference || previous.reference}. Reabra o formulário para retomar.`, 409);
     const source = Buffer.from(await image.arrayBuffer());
     if (!source.length || source.length > 20 * 1024 * 1024) throw new ForcaError('A imagem deve ter até 20 MB.');
-    let photo;
+    let photos;
     try {
-      for (const [width, quality] of [[2000, 90], [1800, 80], [1400, 75], [1000, 70]]) {
-        photo = await sharp(source, { limitInputPixels: 40000000 }).rotate().resize({ width, height: width, fit: 'inside', withoutEnlargement: true }).flatten({ background: '#fff' }).jpeg({ quality, mozjpeg: true }).toBuffer();
-        if (photo.length <= 900000) break;
-      }
-      if (photo.length > 900000) throw new Error('Imagem excede o limite de envio.');
+      photos = await prepareProductImages(source, `${ownerId}:${pairId}`);
     }
     catch { throw new ForcaError('Não foi possível preparar a imagem. Use uma imagem válida com até 40 milhões de pixels.'); }
     let categoryErpId = data.categoryErpId;
@@ -177,11 +180,16 @@ export class ForcaClient {
       if (existingSku && !/^[0-9]{16}$/.test(existingSku.code)) throw new ForcaError('O tamanho existente precisa ter um código numérico de 16 dígitos. Ajuste esse código no painel antes de retomar.', 409);
       await this.request('POST', '/prices', { erpId: codes.price(size), price: data.price, skuErpId: codes.sku(size), skuCode: existingSku?.code || codes.skuCode(size), priceTableErpId: this.table, companyErpId: this.company });
     }
-    const form = new FormData();
-    const filename = `${codes.product}--1.jpg`;
-    form.append('images', new Blob([photo], { type: 'image/jpeg' }), filename);
-    const uploaded = await this.request('POST', '/images', form);
-    if (!Array.isArray(uploaded) || !uploaded.some(p => p.productErpId === codes.product && Number(p.order) === 1)) throw new ForcaError('O produto foi criado, mas o vínculo da imagem não foi confirmado. Reabra o cadastro para retomar.', 502);
-    return { reference: data.reference, productErpId: codes.product, sizes: data.sizes, price: data.price, stock: INITIAL_STOCK, table: this.table, deadline: DEFAULT_DEADLINE, promptDelivery: true, visibleForca: true, filename };
+    const filenames = []; let existingImageCount = 0;
+    for (const photo of photos) {
+      const form = new FormData(), filename = `${codes.product}--${photo.order}.jpg`;
+      form.append('images', new Blob([photo.buffer], { type: 'image/jpeg' }), filename);
+      // Separate requests keep each upload below the upstream server's limit.
+      const uploaded = await this.request('POST', '/images', form);
+      if (!Array.isArray(uploaded) || !uploaded.some(p => p.productErpId === codes.product && Number(p.order) === photo.order)) throw new ForcaError(`O produto foi criado, mas a imagem ${photo.order} de ${PRODUCT_IMAGE_COUNT} não foi confirmada. Reabra o cadastro para retomar.`, 502);
+      if (uploaded.some(p => p.productErpId === codes.product && Number(p.order) === photo.order && p.alreadyExists)) existingImageCount++;
+      filenames.push(filename);
+    }
+    return { reference: data.reference, productErpId: codes.product, sizes: data.sizes, price: data.price, stock: INITIAL_STOCK, table: this.table, deadline: DEFAULT_DEADLINE, promptDelivery: true, visibleForca: true, filename: filenames[0], filenames, imageCount: PRODUCT_IMAGE_COUNT, existingImageCount };
   }
 }

@@ -6,10 +6,10 @@ import { ForcaError } from '../server/forca-service.js';
 const owner = 'owner-id';
 const fields = { pairId: 'pair', name: 'Pijama', reference: '90.00.123', price: '79.90', sizes: ['P', 'M'], imageSlot: 'after', brandErpId: 'brand', branchErpId: 'branch', genderErpId: 'gender', variantName: 'Azul', categoryErpId: 'category' };
 
-function fixture() {
+function fixture(extraEnv = {}) {
   const row = { id: 'pair', owner_id: owner, name: 'Original', review_status: 'approved', after_path: owner + '/project/pair/after.png', before_path: owner + '/project/pair/before.png', is_used: true, used_in: 'Catálogo', usage_tools: ['b2b'] };
   const state = { row, published: 0, downloads: [], auth: true, fail: false, changed: false };
-  const db = { auth: { getUser: async () => state.auth ? { data: { user: { id: owner } } } : { error: new Error('invalid token') } },
+  const db = { auth: { getUser: async () => state.auth ? { data: { user: { id: owner, is_anonymous: state.anonymous || false } } } : { error: new Error('invalid token') } },
     storage: { from: () => ({ download: async path => { state.downloads.push(path); return { data: new Blob(['photo']) }; } }) },
     from: table => {
       assert.equal(table, 'studio_pairs');
@@ -22,7 +22,7 @@ function fixture() {
         } };
       return query;
     } };
-  const handler = createForcaHandler({ env: { VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public-key', FORCA_ALLOWED_USER_IDS: owner }, supabaseFactory: () => db,
+  const handler = createForcaHandler({ env: { VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public-key', ...extraEnv }, supabaseFactory: () => db,
     forcaFactory: () => ({ catalog: async () => ({ brands: [], branches: [], categories: [], genders: [], colors: [], table: { erpId: 'erp-feiras' } }), lookup: async () => null, suggestReference: async () => '90.00.123',
       publish: async args => {
         state.published++; assert.equal(args.pairId, 'pair'); assert.equal(args.ownerId, owner);
@@ -90,11 +90,16 @@ test('catalog returns a suggested reference only for an approved owned pair; met
   assert.equal((await invoke({ body: { ...fields, oversized: 'x'.repeat(17000) } })).statusCode, 413);
 });
 
-test('an authenticated account absent from the integration allowlist is denied', async () => {
-  let published = false;
-  const handler = createForcaHandler({ env: { VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public', FORCA_ALLOWED_USER_IDS: 'someone-else' },
-    supabaseFactory: () => ({ auth: { getUser: async () => ({ data: { user: { id: owner } } }) } }), forcaFactory: () => { published = true; } });
-  const response = { setHeader() {}, end(value) { this.data = JSON.parse(value); } };
-  await handler({ method: 'GET', url: '/api/forca?pairId=pair', headers: { authorization: 'Bearer valid' } }, response);
-  assert.equal(response.statusCode, 403); assert.equal(published, false);
+test('any signed-in account can publish its approved images without an allowlist, including deployments with the old variable', async () => {
+  for (const env of [{}, { FORCA_ALLOWED_USER_IDS: 'someone-else' }]) {
+    const { state, invoke } = fixture(env);
+    const result = await invoke();
+    assert.equal(result.statusCode, 200); assert.equal(state.published, 1);
+  }
+});
+
+test('anonymous Supabase sessions cannot publish products', async () => {
+  const { state, invoke } = fixture();
+  state.anonymous = true;
+  assert.equal((await invoke()).statusCode, 401); assert.equal(state.published, 0);
 });

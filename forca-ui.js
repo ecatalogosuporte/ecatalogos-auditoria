@@ -94,7 +94,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
       brandErpId: $('forcaBrand').value, branchErpId: $('forcaBranch').value, genderErpId: $('forcaGender').value,
       variantName: $('forcaVariant').value.trim(), categoryErpId: $('forcaCategory').value, categoryName: $('forcaCategoryName').value.trim() };
     pending = true; feedback(''); form.inert = true;
-    setBusy(true, 'Criando produto e enviando a imagem…');
+    setBusy(true, 'Criando produto e enviando 4 imagens…');
     try {
       const receipt = await request('/api/forca', { method: 'POST', body: JSON.stringify(input) }, context);
       if (active !== context || currentUserId() !== context.owner) return;
@@ -103,7 +103,8 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
       if (active !== context || currentUserId() !== context.owner) return;
       $('forcaTitle').textContent = 'Produto enviado'; form.hidden = true;
       $('forcaSuccess').hidden = false;
-      $('forcaSuccessText').textContent = `Referência ${receipt.reference}. Tamanhos: ${receipt.sizes.join(', ')}. Preço único: ${Number(receipt.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Prazo de entrega: PE. Pronta entrega: Sim. Visível no aplicativo. Preços gravados na Tabela de Preços Padrão. O uso da imagem foi registrado em Força de vendas.`;
+      const galleryMessage = receipt.existingImageCount ? 'Galeria com 4 imagens concluída. As fotos já existentes foram mantidas.' : 'Foto principal e 3 detalhes com zoom enviados.';
+      $('forcaSuccessText').textContent = `Referência ${receipt.reference}. ${galleryMessage} Tamanhos: ${receipt.sizes.join(', ')}. Preço único: ${Number(receipt.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Prazo de entrega: PE. Pronta entrega: Sim. Visível no aplicativo. Preços gravados na Tabela de Preços Padrão. O uso da imagem foi registrado em Força de vendas.`;
     } catch (error) { if (active === context && error.name !== 'AbortError') feedback(error.message); }
     finally { pending = false; if (active === context) { form.inert = false; setBusy(false); } }
   });

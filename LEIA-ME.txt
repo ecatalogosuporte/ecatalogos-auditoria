@@ -79,9 +79,15 @@ concluir o cadastro e o envio da foto.
 Configure as variáveis privadas FORCA_* do .env.example na Vercel.
 A configuração local está no .env.local, ignorado pelo Git. Importe esse
 arquivo em Environment Variables da Vercel e publique a nova versão.
-O usuário precisa estar na lista FORCA_ALLOWED_USER_IDS. Veja os detalhes
-em docs/forca-de-vendas.md. Não é necessário um novo script SQL.
+Qualquer usuário logado pode cadastrar produtos com suas próprias imagens
+aprovadas. Veja docs/forca-de-vendas.md. Não é necessário novo script SQL.
 
 O cadastro no Força de vendas usa sempre prazo de entrega PE, Pronta
 entrega = Sim e produto visível no aplicativo. A integração confere se
 esses dados foram gravados antes de confirmar o envio.
+
+GALERIA NO FORÇA DE VENDAS
+Cada envio inclui a foto principal e três detalhes com zoom da mesma
+imagem, gerados automaticamente em posições variadas. Eles aparecem nas
+miniaturas do produto. Ao retomar uma falha, os recortes e suas ordens
+continuam os mesmos. O envio é confirmado somente após as quatro fotos.

@@ -116,8 +116,8 @@
     <div class="dialog-head"><div><span class="eyebrow">FORÇA DE VENDAS</span><h2 id="forcaTitle">Cadastrar no Força de vendas</h2></div><button type="button" class="close-button" id="forcaClose" aria-label="Fechar cadastro no Força de vendas">×</button></div>
     <form id="forcaForm">
       <p class="forca-rules">Tabela de Preços Padrão · Estoque inicial de 6.000 por tamanho · Um preço para todos os tamanhos</p>
-      <p id="forcaResume" class="forca-rules" hidden>Este comparativo já tem um produto no Força de vendas. O envio retoma os mesmos códigos, sem criar outro produto ou repor o estoque dos tamanhos existentes.</p>
-      <div class="forca-layout"><div class="forca-picture"><img id="forcaPreview" alt="Imagem aprovada que será enviada"><label class="field-label" for="forcaImage">Imagem do produto</label><select id="forcaImage"><option value="after">Depois — imagem aprovada</option><option value="before">Antes — imagem original</option></select></div>
+      <p id="forcaResume" class="forca-rules" hidden>Este comparativo já tem um produto no Força de vendas. O envio retoma os mesmos códigos e completa as miniaturas faltantes. As fotos e o estoque dos tamanhos existentes são mantidos.</p>
+      <div class="forca-layout"><div class="forca-picture"><img id="forcaPreview" alt="Imagem aprovada que será enviada"><label class="field-label" for="forcaImage">Imagem do produto</label><select id="forcaImage"><option value="after">Depois — imagem aprovada</option><option value="before">Antes — imagem original</option></select><p class="forca-catalog-help">Serão enviadas 4 fotos: a principal e 3 recortes com zoom da mesma imagem, para as miniaturas.</p></div>
       <div class="forca-fields">
         <label>Nome do produto<input id="forcaName" maxlength="150" required></label>
         <div class="forca-grid"><label>Referência<input id="forcaReference" placeholder="00.00.000" pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{3}" maxlength="9" required></label><label>Preço único (R$)<input id="forcaPrice" type="number" min="0.01" max="999999" step="0.01" placeholder="79,90" required></label></div>

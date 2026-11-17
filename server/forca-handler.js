@@ -34,8 +34,6 @@ export function createForcaHandler({ env = process.env, supabaseFactory = create
       const db = supabaseFactory(url, key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
       const { data: auth, error: authError } = await db.auth.getUser(token);
       if (authError || !auth?.user || auth.user.is_anonymous) throw new ForcaError('Sua sessão expirou. Entre novamente.', 401);
-      const allowed = String(env.FORCA_ALLOWED_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-      if (!allowed.includes(auth.user.id)) throw new ForcaError('Seu usuário ainda não tem acesso ao cadastro no Força de vendas.', 403);
       const ownerId = auth.user.id;
       const input = req.method === 'POST' ? await jsonBody(req) : {};
       const pairId = req.method === 'GET' ? new URL(req.url, 'http://localhost').searchParams.get('pairId') : input?.pairId;
