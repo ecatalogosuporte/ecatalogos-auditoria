@@ -406,3 +406,17 @@ button.is-loading::before{content:'';display:inline-block;width:13px;height:13px
 @media print{.gallery-filters,.gallery-export-bar,.gallery-usage{display:none!important}}
 .gallery-export-bar .gallery-export-actions{display:flex;flex-direction:column;align-items:flex-end;gap:9px;flex:initial;max-width:none}
 @media(max-width:700px){.gallery-export-bar .gallery-export-actions{align-items:stretch}.gallery-export-actions .button{justify-content:center}}
+
+/* Product creation in Força de vendas. */
+.forca-launch{color:#176fba;border-color:#c9e4fa;background:#eef7ff}.review-forca{margin-top:16px}
+.forca-dialog{width:min(850px,96vw);max-height:92vh;overflow:auto}
+.forca-rules{font-size:12px;line-height:1.7;background:#eef7ff;border:1px solid #d7eafa;padding:12px 14px;border-radius:9px;color:#3c637f;margin:0 0 18px}
+.forca-layout{display:grid;grid-template-columns:190px minmax(0,1fr);gap:24px}
+.forca-picture img{display:block;width:100%;height:225px;object-fit:contain;background:#f7fafc;border:1px solid #e1eaf2;border-radius:10px;margin-bottom:15px}
+.forca-fields{display:flex;flex-direction:column;gap:13px}.forca-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.forca-fields label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:650;color:#4b6577;min-width:0}
+.forca-dialog input,.forca-dialog select{width:100%;min-height:39px;border:1px solid #d6e3ef;border-radius:7px;background:white;padding:8px 10px;font:inherit;color:#263f50;font-size:13px}
+.forca-fields small,.forca-catalog-help{font-size:11px;color:#7b8e9c;line-height:1.6;font-weight:400;margin:0}
+.forca-dialog #forcaFeedback{margin-top:18px}#forcaSuccessText{line-height:1.9;color:#316748;background:#eaf7ef;padding:18px;border-radius:10px}
+@media(max-width:620px){.forca-layout{grid-template-columns:1fr;gap:18px}.forca-picture{display:grid;grid-template-columns:85px minmax(0,1fr);gap:8px 14px;align-items:center}.forca-picture img{grid-row:1/3;height:100px;margin:0}.forca-picture .field-label{margin:0;align-self:end}.forca-picture select{align-self:start}.forca-dialog .dialog-footer{flex-wrap:wrap}.forca-dialog .dialog-footer .button{flex:1}.forca-grid{gap:10px}}
+@media print{.review-forca,.forca-dialog{display:none!important}}

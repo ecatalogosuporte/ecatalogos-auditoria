@@ -780,3 +780,94 @@ test('products edit tool usage directly in the gallery, preserve failed drafts a
   await expect(page.locator('.usage-status')).toContainText('B2B, Atacado de modas');
   await expect(page.locator('[name="isUsed"]')).toHaveCount(1);
 });
+
+function forcaCatalog() {
+  return { reference: '90.00.123', existing: null, table: { erpId: 'erp-feiras', description: 'Tabela de Preços Padrão' }, deadline: { erpId: 'D1', name: 'PE' },
+    brands: [{ erpId: 'BR1', name: 'Marca de demonstração' }], branches: [{ erpId: 'FIL1', name: 'Nacional' }],
+    genders: [{ erpId: 'U', name: 'Unissex' }], colors: [{ erpId: 'AZ', name: 'Azul' }],
+    categories: [{ erpId: 'CAT1', name: 'Pijamas', brandErpId: 'BR1' }] };
+}
+
+test('approved images create products through the app with one price, retained drafts on failure and usage only after success', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  let posts = 0, fail = true;
+  await context.route(/\/api\/forca(?:\?|$)/, async route => {
+    expect(route.request().headers().authorization).toMatch(/^Bearer /);
+    if (route.request().method() === 'GET') return route.fulfill({ json: forcaCatalog() });
+    posts++;
+    const body = route.request().postDataJSON();
+    expect(body).toMatchObject({ reference: '90.00.123', price: '79.90', sizes: ['P', 'M', 'G', 'GG'], imageSlot: 'after', brandErpId: 'BR1', categoryErpId: 'CAT1' });
+    expect(body).not.toHaveProperty('stockForca'); expect(body).not.toHaveProperty('priceTableErpId');
+    if (fail) return route.fulfill({ status: 502, json: { error: 'O produto foi criado, mas o envio da imagem precisa ser retomado.' } });
+    const row = backend.pairs.find(p => p.id === body.pairId);
+    Object.assign(row, { is_used: true, used_in: '', usage_tools: ['forca-de-vendas'] });
+    return route.fulfill({ json: { reference: body.reference, sizes: body.sizes, price: body.price, table: 'erp-feiras', usage: { isUsed: true, usedIn: '', usageTools: row.usage_tools } } });
+  });
+  await page.goto('/'); await login(page); await addPair(page);
+  await expect(page.locator('#gallery [data-forca]')).toBeDisabled();
+  await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
+  await page.locator('#reviewCards [data-forca]').click();
+  await expect(page.locator('#forcaReference')).toHaveValue('90.00.123');
+  await expect(page.locator('#forcaModal')).toContainText('6.000 por tamanho');
+  await expect(page.locator('#forcaModal')).toContainText('Tabela de Preços Padrão');
+  await expect(page.locator('#forcaDeadline')).toHaveValue('PE');
+  await expect(page.locator('#forcaDeadline')).not.toBeEditable();
+  await expect(page.locator('#forcaPromptDelivery')).toHaveValue('Sim');
+  await expect(page.locator('#forcaPromptDelivery')).not.toBeEditable();
+  await page.locator('#forcaPrice').fill('79.90');
+  await page.locator('#forcaReference').fill('BAD');
+  await page.locator('#forcaSubmit').click();
+  expect(posts).toBe(0);
+  await page.locator('#forcaReference').fill('90.00.123');
+  await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-form-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-form-mobile.png', animations: 'disabled' });
+  await page.locator('#forcaSubmit').click();
+  await expect(page.locator('#forcaFeedback')).toContainText('precisa ser retomado');
+  await expect(page.locator('#forcaPrice')).toHaveValue('79.90');
+  expect(backend.pairs[0].is_used).toBe(false);
+  fail = false;
+  await page.locator('#forcaSubmit').click();
+  await expect(page.locator('#forcaSuccess')).toBeVisible();
+  await expect(page.locator('#forcaSuccessText')).toContainText('90.00.123');
+  await expect(page.locator('#forcaSuccessText')).toContainText('Tabela de Preços Padrão');
+  await expect(page.locator('#forcaSuccessText')).toContainText('Prazo de entrega: PE');
+  await expect(page.locator('#forcaSuccessText')).toContainText('Pronta entrega: Sim');
+  await page.locator('#forcaDone').click();
+  await expect(page.locator('.usage-status')).toContainText('Força de vendas');
+  expect(posts).toBe(2); expect(backend.uploads).toBe(2);
+});
+
+test('missing server configuration explains the integration setup and leaves the original workflow available', async ({ page, context }) => {
+  await mockSupabase(context);
+  await context.route(/\/api\/forca(?:\?|$)/, route => route.fulfill({ status: 503, json: { error: 'Configure a integração do Força de vendas no servidor.' } }));
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
+  await page.locator('#backToStudio').click(); await page.locator('#gallery [data-forca]').click();
+  await expect(page.locator('#forcaFeedback')).toContainText('Configure a integração');
+  await expect(page.locator('#forcaSubmit')).toBeDisabled();
+  await page.locator('#forcaClose').click();
+  await expect(page.locator('#forcaModal')).toBeHidden();
+  await expect(page.locator('[data-action="download-before"]')).toBeEnabled();
+});
+
+test('logout in another tab clears an open Força de vendas form and ignores a late catalog response', async ({ page, context }) => {
+  await mockSupabase(context);
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await context.route(/\/api\/forca(?:\?|$)/, async route => { await pending; await route.fulfill({ json: forcaCatalog() }).catch(() => {}); });
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
+  const other = await context.newPage(); await other.goto('/');
+  await expect(other.locator('#signOut')).toBeVisible();
+  await page.locator('#reviewCards [data-forca]').click();
+  await expect(page.locator('#forcaModal')).toBeVisible();
+  await other.locator('#signOut').click();
+  await expectLocked(page);
+  await expect(page.locator('#forcaModal')).toBeHidden();
+  await expect(page.locator('#forcaPreview')).not.toHaveAttribute('src');
+  release();
+  await expectLocked(page);
+  await expect(page.locator('#forcaModal')).toBeHidden();
+});

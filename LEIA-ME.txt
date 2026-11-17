@@ -66,3 +66,22 @@ No cartão de um produto aprovado, abra “Uso da imagem” para editar as
 ferramentas e salvar o uso sem entrar na revisão.
 O backup continua incluindo o projeto inteiro. Não há novo SQL para
 estes filtros; eles usam a estrutura de uso já configurada.
+
+
+CADASTRAR PRODUTOS NO FORÇA DE VENDAS
+Aprove o comparativo e clique em “Força de vendas” na galeria ou revisão.
+Confira a imagem, preencha um preço único e escolha marca, tipo, gênero,
+variante e categoria. Os tamanhos começam em P, M, G e GG.
+Cada tamanho novo recebe estoque de 6.000 e código numérico de 16 dígitos.
+A referência segue 00.00.000. Os preços são enviados sempre para a
+Tabela de Preços Padrão (erp-feiras). O uso da imagem só é marcado após
+concluir o cadastro e o envio da foto.
+Configure as variáveis privadas FORCA_* do .env.example na Vercel.
+A configuração local está no .env.local, ignorado pelo Git. Importe esse
+arquivo em Environment Variables da Vercel e publique a nova versão.
+O usuário precisa estar na lista FORCA_ALLOWED_USER_IDS. Veja os detalhes
+em docs/forca-de-vendas.md. Não é necessário um novo script SQL.
+
+O cadastro no Força de vendas usa sempre prazo de entrega PE, Pronta
+entrega = Sim e produto visível no aplicativo. A integração confere se
+esses dados foram gravados antes de confirmar o envio.

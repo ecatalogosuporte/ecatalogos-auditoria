@@ -10,6 +10,14 @@ App de comparativos antes/depois, revisão e aprovação de produtos. Frontend e
 - **Filtros e download em lote:** combine avaliação, busca por nome e uso/não uso em cada ferramenta. O ZIP pode conter somente o antes, somente o depois ou os comparativos dos produtos filtrados. O uso também pode ser editado diretamente no cartão de cada produto.
 - Logo em `public/logo-ecatalogos.png`, também usada como favicon.
 
+## Enviar produtos ao Força de vendas
+
+Aprove o comparativo e clique em **Força de vendas**, no cartão da galeria ou na revisão. Confira a imagem antes/depois, informe um preço único e escolha marca, tipo, gênero, cor e categoria. Os tamanhos começam como **P, M, G e GG**. O cadastro cria o produto e os SKUs, grava o preço na **Tabela de Preços Padrão (`erp-feiras`)** e envia a foto.
+
+O prazo é sempre **PE**, com **Pronta entrega = Sim** e visibilidade habilitada no aplicativo. Esses valores aparecem preenchidos no formulário. Cada tamanho novo recebe **6.000 unidades** e um **código numérico de 16 dígitos**. A referência comercial segue **00.00.000**, com uma sugestão livre que pode ser editada. Após o envio completo, a imagem é marcada como usada em Força de vendas, preservando as outras ferramentas.
+
+Configure as variáveis privadas `FORCA_*` do [guia de integração](docs/forca-de-vendas.md) no servidor local ou na Vercel. Os usuários autorizados são definidos por `FORCA_ALLOWED_USER_IDS`. Não é necessário outro SQL. As credenciais não são incluídas no frontend ou no HTML portátil.
+
 ## Rodar no computador
 
 Use Node.js 22 (ou `nvm use`):

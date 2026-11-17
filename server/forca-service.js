@@ -1,0 +1,187 @@
+import { createHash, randomInt } from 'node:crypto';
+import sharp from 'sharp';
+
+export class ForcaError extends Error {
+  constructor(message, status = 400) { super(message); this.status = status; }
+}
+
+export const DEFAULT_TABLE = 'erp-feiras';
+export const INITIAL_STOCK = 6000;
+export const DEFAULT_DEADLINE = 'PE';
+export const REFERENCE_PATTERN = /^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/;
+
+export function productCodes(ownerId, pairId) {
+  const hash = createHash('sha256').update(`${ownerId}:${pairId}`).digest('hex');
+  return { product: `EA${hash.slice(0, 16)}`, variant: `EV${hash.slice(0, 16)}`,
+    sku: size => `ES${createHash('sha256').update(`${hash}:${size}`).digest('hex').slice(0, 16)}`,
+    skuCode: size => String(1000000000000000n + BigInt(`0x${createHash('sha256').update(`${hash}:code:${size}`).digest('hex').slice(0, 16)}`) % 9000000000000000n),
+    price: size => `P${createHash('sha256').update(`${hash}:${size}`).digest('hex').slice(0, 8)}` };
+}
+
+export function validateProduct(input) {
+  const text = (key, max) => {
+    const value = String(input[key] || '').trim();
+    if (!value || value.length > max) throw new ForcaError(`Preencha ${key === 'name' ? 'o nome' : key === 'categoryName' ? 'a nova categoria' : 'os dados do produto'} corretamente.`);
+    return value;
+  };
+  const name = text('name', 150), reference = text('reference', 9);
+  if (!REFERENCE_PATTERN.test(reference)) throw new ForcaError('A referência deve ter o formato 00.00.000, com sete números.');
+  const price = Number(input.price);
+  if (!Number.isFinite(price) || price <= 0 || price > 999999 || Math.abs(price * 100 - Math.round(price * 100)) > 0.00001) throw new ForcaError('Informe um preço válido, com até duas casas decimais.');
+  const sizes = Array.isArray(input.sizes) ? input.sizes.map(s => String(s).trim().toUpperCase()) : [];
+  if (!sizes.length || sizes.length > 20 || new Set(sizes).size !== sizes.length || sizes.some(s => !/^[\p{L}\p{N} /+.-]{1,15}$/u.test(s))) throw new ForcaError('Informe de 1 a 20 tamanhos diferentes.');
+  if (!['before', 'after'].includes(input.imageSlot)) throw new ForcaError('Escolha a imagem antes ou depois.');
+  return { name, reference, price: price.toFixed(2), sizes, imageSlot: input.imageSlot,
+    brandErpId: text('brandErpId', 50), branchErpId: text('branchErpId', 50),
+    genderErpId: text('genderErpId', 50), variantName: text('variantName', 60),
+    categoryErpId: input.categoryErpId === '__new' ? '__new' : text('categoryErpId', 50),
+    categoryName: input.categoryErpId === '__new' ? text('categoryName', 100) : '' };
+}
+
+export class ForcaClient {
+  constructor(env, fetcher = fetch) {
+    this.fetcher = fetcher;
+    this.base = (env.FORCA_API_BASE || 'https://dev.api.forca-de-vendas.e-catalogos.net').replace(/\/$/, '');
+    if (!['https://dev.api.forca-de-vendas.e-catalogos.net', 'https://forca-de-vendas.api.e-catalogos.net'].includes(this.base)) throw new ForcaError('Endereço do Força de vendas não configurado corretamente.', 503);
+    this.email = env.FORCA_API_EMAIL; this.password = env.FORCA_API_PASSWORD;
+    this.companyKey = Number(env.FORCA_COMPANY_KEY);
+    if (!this.email || !this.password || !Number.isInteger(this.companyKey) || this.companyKey <= 0) throw new ForcaError('Configure a integração do Força de vendas no servidor.', 503);
+    this.company = String(this.companyKey);
+    this.table = DEFAULT_TABLE;
+  }
+
+  async request(method, path, body, { notFound = false } = {}) {
+    if (!this.token && path !== '/auth') {
+      this.authPromise ||= this.request('POST', '/auth', { email: this.email, password: this.password, key: this.companyKey }).then(auth => { this.token = auth?.resource?.token; });
+      await this.authPromise;
+      if (!this.token) throw new ForcaError('Não foi possível autenticar no Força de vendas.', 502);
+    }
+    let response;
+    try {
+      response = await this.fetcher(this.base + path, {
+        method, redirect: 'error', signal: AbortSignal.timeout(20000),
+        headers: { ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}), ...(body && !(body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}) },
+        body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined
+      });
+    } catch { throw new ForcaError('O Força de vendas não respondeu. Tente novamente; o cadastro será retomado com os mesmos códigos.', 502); }
+    if (response.status === 404 && notFound) return null;
+    const data = await response.json().catch(() => null);
+    const stages = { '/products': 'de cadastro do produto', '/variants': 'da variante', '/skus': 'dos tamanhos', '/prices': 'dos preços na tabela padrão', '/images': 'da imagem', '/categories': 'da categoria', '/deadlines/products': 'do prazo de entrega', '/products/visible': 'da visibilidade no aplicativo' };
+    if (!response.ok || response.status === 207) throw new ForcaError(path === '/auth' ? 'As credenciais do Força de vendas foram recusadas.' : `O Força de vendas recusou a etapa ${stages[path.split('?')[0]] || 'de consulta do catálogo'}. Revise os dados ou tente novamente.`, 502);
+    return data;
+  }
+
+  async list(path, query = {}) {
+    const rows = [], seen = new Set();
+    for (let page = 1; page <= 50; page++) {
+      const data = await this.request('GET', `${path}?${new URLSearchParams({ ...query, page, limit: 100 })}`, undefined, { notFound: true });
+      if (data === null) return rows;
+      if (!Array.isArray(data)) throw new ForcaError('O catálogo do Força de vendas retornou uma resposta inesperada.', 502);
+      let added = 0;
+      for (const row of data) {
+        const key = JSON.stringify(row);
+        if (!seen.has(key)) { seen.add(key); rows.push(row); added++; }
+      }
+      if (data.length < 100 || !added) return rows;
+    }
+    throw new ForcaError('O catálogo excedeu o limite de consulta da integração.', 502);
+  }
+
+  async catalog() {
+    const [brands, branches, genders, categories, tables, deadlines] = await Promise.all(['/brands', '/branches', '/genders', '/categories', '/price-tables', '/deadlines'].map(path => this.list(path)));
+    const table = tables.find(t => t.erpId === this.table);
+    if (!table || table.description?.trim() !== 'Tabela de Preços Padrão' || table.visible === false || String(table.companyErpId) !== this.company) throw new ForcaError('A Tabela de Preços Padrão (erp-feiras) precisa estar ativa e vinculada à empresa configurada.', 409);
+    const matchingDeadlines = deadlines.filter(d => d.name?.trim().toUpperCase() === DEFAULT_DEADLINE && typeof d.erpId === 'string' && d.erpId.trim());
+    if (matchingDeadlines.length !== 1) throw new ForcaError('Configure um único prazo de entrega PE com código ERP no Força de vendas.', 409);
+    const choices = items => items.filter(p => typeof p.erpId === 'string' && p.erpId.trim()).map(p => ({ erpId: p.erpId, name: p.name, ...(p.brandErpId ? { brandErpId: p.brandErpId } : {}), ...(p.hexCode ? { hexCode: p.hexCode } : {}) }));
+    return { brands: choices(brands), branches: choices(branches), genders: choices(genders), categories: choices(categories), table: { erpId: table.erpId, description: table.description }, deadline: { erpId: matchingDeadlines[0].erpId, name: DEFAULT_DEADLINE } };
+  }
+
+  async lookup(erpId) { return this.request('GET', `/products/${encodeURIComponent(erpId)}`, undefined, { notFound: true }); }
+
+  async referenceAvailable(reference, ownErpId) {
+    const products = await this.list('/products', { reference });
+    return !products.some(p => p.reference === reference && p.erpId !== ownErpId);
+  }
+
+  async suggestReference(ownErpId) {
+    const existing = await this.lookup(ownErpId);
+    if (existing) return existing.productsReference || existing.reference;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const digits = String(randomInt(10000000)).padStart(7, '0');
+      const reference = `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
+      if (await this.referenceAvailable(reference, ownErpId)) return reference;
+    }
+    throw new ForcaError('Não foi possível sugerir uma referência livre. Informe outra referência.', 409);
+  }
+
+  async publish({ ownerId, pairId, input, image, catalog }) {
+    const data = validateProduct(input), codes = productCodes(ownerId, pairId);
+    if (catalog.deadline?.name !== DEFAULT_DEADLINE || !catalog.deadline.erpId) throw new ForcaError('O prazo de entrega PE precisa estar configurado antes do envio.', 409);
+    const find = (items, id) => items.find(p => p.erpId === id);
+    const brand = find(catalog.brands, data.brandErpId);
+    if (!brand || !find(catalog.branches, data.branchErpId) || !find(catalog.genders, data.genderErpId)) throw new ForcaError('Selecione os cadastros disponíveis no Força de vendas.');
+    const category = find(catalog.categories, data.categoryErpId);
+    if (data.categoryErpId !== '__new' && (!category || category.brandErpId !== data.brandErpId)) throw new ForcaError('Selecione uma categoria da marca escolhida.');
+    if (!await this.referenceAvailable(data.reference, codes.product)) throw new ForcaError('Essa referência já pertence a outro produto. Escolha outra.', 409);
+    const previous = await this.lookup(codes.product);
+    if (previous && (previous.productsReference || previous.reference) !== data.reference) throw new ForcaError(`Este comparativo já tem um cadastro na referência ${previous.productsReference || previous.reference}. Reabra o formulário para retomar.`, 409);
+    const source = Buffer.from(await image.arrayBuffer());
+    if (!source.length || source.length > 20 * 1024 * 1024) throw new ForcaError('A imagem deve ter até 20 MB.');
+    let photo;
+    try {
+      for (const [width, quality] of [[2000, 90], [1800, 80], [1400, 75], [1000, 70]]) {
+        photo = await sharp(source, { limitInputPixels: 40000000 }).rotate().resize({ width, height: width, fit: 'inside', withoutEnlargement: true }).flatten({ background: '#fff' }).jpeg({ quality, mozjpeg: true }).toBuffer();
+        if (photo.length <= 900000) break;
+      }
+      if (photo.length > 900000) throw new Error('Imagem excede o limite de envio.');
+    }
+    catch { throw new ForcaError('Não foi possível preparar a imagem. Use uma imagem válida com até 40 milhões de pixels.'); }
+    let categoryErpId = data.categoryErpId;
+    if (categoryErpId === '__new') {
+      categoryErpId = `AC${createHash('sha256').update(`${data.brandErpId}:${data.categoryName.toLocaleLowerCase('pt-BR')}`).digest('hex').slice(0, 4)}`;
+      const existing = catalog.categories.find(c => c.erpId === categoryErpId);
+      if (existing && (existing.name !== data.categoryName || existing.brandErpId !== data.brandErpId)) throw new ForcaError('Escolha outro nome para a categoria.', 409);
+      if (!existing) await this.request('POST', '/categories', { erpId: categoryErpId, name: data.categoryName, brandErpId: data.brandErpId, companyErpId: this.company });
+    }
+    if (previous) {
+      const matches = [['productsName', 'name', data.name], ['productsBrandErpId', 'brandErpId', data.brandErpId], ['productsBranchErpId', 'branchErpId', data.branchErpId], ['productsGenderErpId', 'genderErpId', data.genderErpId], ['productsCategoryErpId', 'categoryErpId', categoryErpId]];
+      if (matches.some(([a, b, expected]) => (previous[a] ?? previous[b]) !== expected)) throw new ForcaError('Mantenha os dados originais para retomar este produto. Alterações no cadastro existente devem ser feitas no painel.', 409);
+    }
+    if (!previous) await this.request('POST', '/products', { erpId: codes.product, companyErpId: this.company, name: data.name, reference: data.reference,
+      branchErpId: data.branchErpId, brandErpId: data.brandErpId, genderErpId: data.genderErpId, categoryErpId,
+      deadlineErpId: catalog.deadline.erpId, promptDelivery: true, openGrid: true, ipi: 0, st: '0', isDiscontinued: false, isLaunch: false,
+      isVisibleB2B: false, isVisibleForca: true, productColors: [] });
+    const binding = await this.request('PATCH', '/deadlines/products', [{ productErpId: codes.product, deadlineErpId: catalog.deadline.erpId }]);
+    if (Number(binding?.updated) !== 1 || Number(binding?.notUpdated) !== 0) throw new ForcaError('O produto foi criado, mas o prazo PE não foi vinculado. Revise o prazo no painel e retome o envio.', 502);
+    let confirmed = (await this.list('/products', { reference: data.reference })).find(p => p.erpId === codes.product);
+    if (!confirmed || confirmed.deadlineErpId !== catalog.deadline.erpId) throw new ForcaError('Não foi possível confirmar o prazo PE no produto. Retome o envio para concluir.', 502);
+    if ((confirmed.productPromptDelivery ?? confirmed.promptDelivery) !== true) throw new ForcaError('O produto precisa estar com Pronta entrega = Sim. Confira esse campo no painel antes de retomar.', 409);
+    if ((confirmed.productIsVisibleForca ?? confirmed.isVisibleForca) !== true) {
+      const visibility = await this.request('PATCH', '/products/visible', [{ productErpId: codes.product, isVisibleForca: true, isVisibleB2B: (confirmed.productIsVisibleB2B ?? confirmed.isVisibleB2B) === true }]);
+      if (Number(visibility?.updated) !== 1 || Number(visibility?.notUpdated) !== 0) throw new ForcaError('Não foi possível ativar a visibilidade no aplicativo. Retome o envio para concluir.', 502);
+      confirmed = (await this.list('/products', { reference: data.reference })).find(p => p.erpId === codes.product);
+      if ((confirmed?.productIsVisibleForca ?? confirmed?.isVisibleForca) !== true) throw new ForcaError('A visibilidade no aplicativo não foi confirmada. Retome o envio.', 502);
+    }
+    const variants = await this.list('/variants');
+    const variant = variants.find(v => v.erpId === codes.variant);
+    if (variant && (variant.productErpId !== codes.product || variant.name !== data.variantName)) throw new ForcaError('Este cadastro já usa outra cor. Mantenha a cor original para retomar.', 409);
+    if (!variant) await this.request('POST', '/variants', { erpId: codes.variant, name: data.variantName, productErpId: codes.product, companyErpId: this.company });
+    const existingSkus = previous ? (await this.list('/skus')).filter(s => s.variantErpId === codes.variant) : [];
+    if (existingSkus.some(s => !data.sizes.includes(s.size))) throw new ForcaError('Mantenha os tamanhos originais para retomar este cadastro.', 409);
+    for (const size of data.sizes) {
+      const existingSku = await this.request('GET', `/skus/${encodeURIComponent(codes.sku(size))}`, undefined, { notFound: true });
+      if (existingSku && (existingSku.variantErpId !== codes.variant || existingSku.size !== size || Number(existingSku.price) !== Number(data.price))) throw new ForcaError('Este tamanho já foi cadastrado com outros dados. Revise o cadastro no painel do Força de vendas.', 409);
+      if (!existingSku) await this.request('POST', '/skus', { erpId: codes.sku(size), code: codes.skuCode(size), size, stockB2B: INITIAL_STOCK, stockForca: INITIAL_STOCK,
+        price: data.price, minQuantity: 1, multipleQuantity: 1, variantErpId: codes.variant, companyErpId: this.company });
+      if (existingSku && !/^[0-9]{16}$/.test(existingSku.code)) throw new ForcaError('O tamanho existente precisa ter um código numérico de 16 dígitos. Ajuste esse código no painel antes de retomar.', 409);
+      await this.request('POST', '/prices', { erpId: codes.price(size), price: data.price, skuErpId: codes.sku(size), skuCode: existingSku?.code || codes.skuCode(size), priceTableErpId: this.table, companyErpId: this.company });
+    }
+    const form = new FormData();
+    const filename = `${codes.product}--1.jpg`;
+    form.append('images', new Blob([photo], { type: 'image/jpeg' }), filename);
+    const uploaded = await this.request('POST', '/images', form);
+    if (!Array.isArray(uploaded) || !uploaded.some(p => p.productErpId === codes.product && Number(p.order) === 1)) throw new ForcaError('O produto foi criado, mas o vínculo da imagem não foi confirmado. Reabra o cadastro para retomar.', 502);
+    return { reference: data.reference, productErpId: codes.product, sizes: data.sizes, price: data.price, stock: INITIAL_STOCK, table: this.table, deadline: DEFAULT_DEADLINE, promptDelivery: true, visibleForca: true, filename };
+  }
+}

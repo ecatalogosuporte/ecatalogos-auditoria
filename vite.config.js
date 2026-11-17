@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite';
+import { createForcaHandler } from './server/forca-handler.js';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
@@ -15,5 +16,14 @@ export default defineConfig(({ mode }) => {
       if (error.message.includes('service_role')) throw error;
     }
   }
-  return {};
+  return { plugins: [{
+    name: 'forca-local-api',
+    configureServer(server) {
+      const handler = createForcaHandler({ env: { ...loadEnv(mode, process.cwd(), ''), ...process.env } });
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split('?')[0] === '/api/forca') return handler(req, res);
+        next();
+      });
+    }
+  }] };
 });

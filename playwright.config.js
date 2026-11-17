@@ -7,7 +7,7 @@ export default defineConfig({
   webServer: [{
     command: 'npm run dev -- --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
-    env: { VITE_SUPABASE_URL: 'http://127.0.0.1:54321', VITE_SUPABASE_PUBLISHABLE_KEY: 'test-public-key' }
+    env: { VITE_SUPABASE_URL: 'http://127.0.0.1:54321', VITE_SUPABASE_PUBLISHABLE_KEY: 'test-public-key', FORCA_DISABLED: 'true' }
   }, {
     command: 'npm run dev -- --port 4174 --strictPort',
     url: 'http://127.0.0.1:4174',
