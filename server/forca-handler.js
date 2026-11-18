@@ -58,7 +58,8 @@ export function createForcaHandler({ env = process.env, supabaseFactory = create
           saved = { name: existing.productsName || existing.name, reference: existing.productsReference || existing.reference,
             brandErpId: existing.productsBrandErpId || existing.brandErpId, branchErpId: existing.productsBranchErpId || existing.branchErpId,
             genderErpId: existing.productsGenderErpId || existing.genderErpId, categoryErpId: existing.productsCategoryErpId || existing.categoryErpId,
-            variantName: variant?.name,
+            variantName: variant?.name, openGrid: existing.productsOpenGrid ?? existing.openGrid,
+            quantities: ownSkus.map(s => ({ size: s.size, minQuantity: s.minQuantity ?? 1, multipleQuantity: s.multipleQuantity ?? 1 })),
             sizes: ownSkus.length ? ownSkus.map(s => s.size) : null, price: ownSkus[0]?.price };
         }
         send(200, { ...catalog, existing: saved, reference: saved?.reference || await forca.suggestReference(codes.product) });

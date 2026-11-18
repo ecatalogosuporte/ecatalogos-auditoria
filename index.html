@@ -122,11 +122,18 @@
         <label>Nome do produto<input id="forcaName" maxlength="150" required></label>
         <div class="forca-grid"><label>Referência<input id="forcaReference" placeholder="00.00.000" pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{3}" maxlength="9" required></label><label>Preço único (R$)<input id="forcaPrice" type="number" min="0.01" max="999999" step="0.01" placeholder="79,90" required></label></div>
         <label>Tamanhos<input id="forcaSizes" value="P, M, G, GG" maxlength="200" required><small>Separe os tamanhos por vírgula. Todos recebem o mesmo preço.</small></label>
+        <label>Grade<select id="forcaOpenGrid" required><option value="true">Aberta</option><option value="false">Fechada</option></select><small id="forcaGridHelp">Na grade aberta, cada tamanho pode ser comprado separadamente, respeitando a quantidade mínima.</small></label>
+        <fieldset class="forca-quantities"><legend>Quantidades por tamanho</legend>
+          <div class="forca-quantity-bulk"><label>Qtd. fixa para todos<input id="forcaBulkFixed" type="number" min="1" max="999999" step="1" value="1" required></label><label>Qtd. mínima para todos<input id="forcaBulkMin" type="number" min="1" max="999999" step="1" value="1" required></label><button type="button" class="button light" id="forcaApplyQuantities">Aplicar a todos</button></div>
+          <div class="forca-quantity-scroll"><table class="forca-quantity-table"><thead><tr><th scope="col">Tamanho</th><th scope="col">Qtd. fixa (G.F.)</th><th scope="col">Qtd. mínima</th></tr></thead><tbody id="forcaQuantityRows"></tbody></table></div>
+          <p class="forca-catalog-help">Você pode ajustar cada tamanho. A quantidade fixa define a composição da grade fechada.</p>
+        </fieldset>
         <div class="forca-grid"><label>Marca<select id="forcaBrand" required></select></label><label>Tipo / filial<select id="forcaBranch" required></select></label><label>Gênero<select id="forcaGender" required></select></label><label>Cor / variante<input id="forcaVariant" maxlength="60" value="Principal" placeholder="Ex.: Azul" required></label></div>
         <div class="forca-grid"><label>Prazo de entrega<input id="forcaDeadline" value="PE" readonly></label><label>Pronta entrega<input id="forcaPromptDelivery" value="Sim" readonly></label></div>
         <p class="forca-catalog-help">O produto será enviado com visibilidade habilitada no aplicativo Força de vendas.</p>
         <label>Categoria<select id="forcaCategory" required></select></label><label id="forcaNewCategoryField" hidden>Nova categoria<input id="forcaCategoryName" maxlength="100"></label>
-        <p class="forca-catalog-help">As marcas e demais cadastros precisam ter código ERP no painel para aparecerem aqui.</p>
+        <p class="forca-catalog-help">As categorias disponíveis pertencem à marca selecionada.</p>
+        <details id="forcaCatalogPending" class="forca-catalog-pending" hidden><summary id="forcaCatalogPendingTitle"></summary><p>Os cadastros abaixo aparecem na API sem código ERP ou sem vínculo com uma marca identificada. Para usá-los, preencha o código ERP da marca e da categoria no painel do Força de vendas e vincule a categoria à marca. Depois, feche e reabra este cadastro para atualizar as listas.</p><p id="forcaPendingBrands"></p><p id="forcaPendingCategories"></p></details>
       </div></div>
       <p id="forcaFeedback" class="auth-feedback error" role="alert" hidden></p>
       <div class="dialog-footer"><button type="button" class="button light" id="forcaCancel">Cancelar</button><button type="submit" class="button primary" id="forcaSubmit" disabled>Criar produto e enviar imagem</button></div>

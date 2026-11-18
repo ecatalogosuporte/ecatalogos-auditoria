@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createForcaHandler } from '../server/forca-handler.js';
-import { ForcaError } from '../server/forca-service.js';
+import { ForcaError, productCodes } from '../server/forca-service.js';
 
 const owner = 'owner-id';
 const fields = { pairId: 'pair', name: 'Pijama', reference: '90.00.123', price: '79.90', sizes: ['P', 'M'], imageSlot: 'after', brandErpId: 'brand', branchErpId: 'branch', genderErpId: 'gender', variantName: 'Azul', categoryErpId: 'category' };
@@ -23,7 +23,7 @@ function fixture(extraEnv = {}) {
       return query;
     } };
   const handler = createForcaHandler({ env: { VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public-key', ...extraEnv }, supabaseFactory: () => db,
-    forcaFactory: () => ({ catalog: async () => ({ brands: [], branches: [], categories: [], genders: [], colors: [], table: { erpId: 'erp-feiras' } }), lookup: async () => null, suggestReference: async () => '90.00.123',
+    forcaFactory: () => ({ catalog: async () => ({ brands: [], branches: [], categories: [], genders: [], colors: [], table: { erpId: 'erp-feiras' } }), lookup: async () => state.existing || null, list: async path => path === '/variants' ? state.variants || [] : state.skus || [], suggestReference: async () => '90.00.123',
       publish: async args => {
         state.published++; assert.equal(args.pairId, 'pair'); assert.equal(args.ownerId, owner);
         if (state.fail) throw new ForcaError('Falha no envio da imagem.', 502);
@@ -102,4 +102,15 @@ test('anonymous Supabase sessions cannot publish products', async () => {
   const { state, invoke } = fixture();
   state.anonymous = true;
   assert.equal((await invoke()).statusCode, 401); assert.equal(state.published, 0);
+});
+
+test('reopening a product returns its closed grid and individual SKU quantities', async () => {
+  const { state, invoke } = fixture(), codes = productCodes(owner, 'pair');
+  state.existing = { productsName: 'Pijama', productsReference: fields.reference, productsOpenGrid: false };
+  state.variants = [{ erpId: codes.variant, name: 'Azul' }];
+  state.skus = [{ variantErpId: codes.variant, size: 'P', minQuantity: 2, multipleQuantity: 3, price: '79.90' }, { variantErpId: codes.variant, size: 'M', minQuantity: 4, multipleQuantity: 5, price: '79.90' }, { variantErpId: 'unrelated', size: 'G', minQuantity: 10, multipleQuantity: 10 }];
+  const result = await invoke({ method: 'GET', url: '/api/forca?pairId=pair' });
+  assert.equal(result.statusCode, 200); assert.equal(result.data.existing.openGrid, false);
+  assert.deepEqual(result.data.existing.quantities, [{ size: 'P', minQuantity: 2, multipleQuantity: 3 }, { size: 'M', minQuantity: 4, multipleQuantity: 5 }]);
+  assert.equal(state.published, 0);
 });

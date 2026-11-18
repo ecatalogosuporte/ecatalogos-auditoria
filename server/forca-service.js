@@ -30,8 +30,21 @@ export function validateProduct(input) {
   if (!Number.isFinite(price) || price <= 0 || price > 999999 || Math.abs(price * 100 - Math.round(price * 100)) > 0.00001) throw new ForcaError('Informe um preço válido, com até duas casas decimais.');
   const sizes = Array.isArray(input.sizes) ? input.sizes.map(s => String(s).trim().toUpperCase()) : [];
   if (!sizes.length || sizes.length > 20 || new Set(sizes).size !== sizes.length || sizes.some(s => !/^[\p{L}\p{N} /+.-]{1,15}$/u.test(s))) throw new ForcaError('Informe de 1 a 20 tamanhos diferentes.');
+  const openGrid = input.openGrid === undefined ? true : input.openGrid;
+  if (typeof openGrid !== 'boolean') throw new ForcaError('Escolha grade aberta ou fechada.');
+  const quantities = input.quantities === undefined ? sizes.map(size => ({ size, minQuantity: 1, multipleQuantity: 1 })) : input.quantities;
+  if (!Array.isArray(quantities) || quantities.length !== sizes.length || new Set(quantities.map(q => q?.size)).size !== sizes.length) throw new ForcaError('Defina as quantidades de cada tamanho.');
+  const normalizedQuantities = sizes.map(size => {
+    const row = quantities.find(q => q?.size === size);
+    const quantity = key => {
+      const value = row?.[key];
+      if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '' || !Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 999999) throw new ForcaError(`Informe quantidades inteiras entre 1 e 999999 para o tamanho ${size}.`);
+      return Number(value);
+    };
+    return { size, minQuantity: quantity('minQuantity'), multipleQuantity: quantity('multipleQuantity') };
+  });
   if (!['before', 'after'].includes(input.imageSlot)) throw new ForcaError('Escolha a imagem antes ou depois.');
-  return { name, reference, price: price.toFixed(2), sizes, imageSlot: input.imageSlot,
+  return { name, reference, price: price.toFixed(2), sizes, openGrid, quantities: normalizedQuantities, imageSlot: input.imageSlot,
     brandErpId: text('brandErpId', 50), branchErpId: text('branchErpId', 50),
     genderErpId: text('genderErpId', 50), variantName: text('variantName', 60),
     categoryErpId: input.categoryErpId === '__new' ? '__new' : text('categoryErpId', 50),
@@ -100,7 +113,8 @@ export class ForcaClient {
     if (!table || table.description?.trim() !== 'Tabela de Preços Padrão' || table.visible === false || String(table.companyErpId) !== this.company) throw new ForcaError('A Tabela de Preços Padrão (erp-feiras) precisa estar ativa e vinculada à empresa configurada.', 409);
     const matchingDeadlines = deadlines.filter(d => d.name?.trim().toUpperCase() === DEFAULT_DEADLINE && typeof d.erpId === 'string' && d.erpId.trim());
     if (matchingDeadlines.length !== 1) throw new ForcaError('Configure um único prazo de entrega PE com código ERP no Força de vendas.', 409);
-    const choices = items => items.filter(p => typeof p.erpId === 'string' && p.erpId.trim()).map(p => ({ erpId: p.erpId, name: p.name, ...(p.brandErpId ? { brandErpId: p.brandErpId } : {}), ...(p.hexCode ? { hexCode: p.hexCode } : {}) }));
+    // Keep the missing links visible; a name cannot safely replace an ERP identifier.
+    const choices = items => items.map(p => ({ erpId: typeof p.erpId === 'string' && p.erpId.trim() ? p.erpId : null, name: p.name, ...(p.brandErpId ? { brandErpId: p.brandErpId } : {}) }));
     return { brands: choices(brands), branches: choices(branches), genders: choices(genders), categories: choices(categories), table: { erpId: table.erpId, description: table.description }, deadline: { erpId: matchingDeadlines[0].erpId, name: DEFAULT_DEADLINE } };
   }
 
@@ -150,15 +164,17 @@ export class ForcaClient {
     if (previous) {
       const matches = [['productsName', 'name', data.name], ['productsBrandErpId', 'brandErpId', data.brandErpId], ['productsBranchErpId', 'branchErpId', data.branchErpId], ['productsGenderErpId', 'genderErpId', data.genderErpId], ['productsCategoryErpId', 'categoryErpId', categoryErpId]];
       if (matches.some(([a, b, expected]) => (previous[a] ?? previous[b]) !== expected)) throw new ForcaError('Mantenha os dados originais para retomar este produto. Alterações no cadastro existente devem ser feitas no painel.', 409);
+      if ((previous.productsOpenGrid ?? previous.openGrid) !== data.openGrid) throw new ForcaError('Mantenha a grade original para retomar este produto. Altere a grade do produto existente no painel.', 409);
     }
     if (!previous) await this.request('POST', '/products', { erpId: codes.product, companyErpId: this.company, name: data.name, reference: data.reference,
       branchErpId: data.branchErpId, brandErpId: data.brandErpId, genderErpId: data.genderErpId, categoryErpId,
-      deadlineErpId: catalog.deadline.erpId, promptDelivery: true, openGrid: true, ipi: 0, st: '0', isDiscontinued: false, isLaunch: false,
+      deadlineErpId: catalog.deadline.erpId, promptDelivery: true, openGrid: data.openGrid, ipi: 0, st: '0', isDiscontinued: false, isLaunch: false,
       isVisibleB2B: false, isVisibleForca: true, productColors: [] });
     const binding = await this.request('PATCH', '/deadlines/products', [{ productErpId: codes.product, deadlineErpId: catalog.deadline.erpId }]);
     if (Number(binding?.updated) !== 1 || Number(binding?.notUpdated) !== 0) throw new ForcaError('O produto foi criado, mas o prazo PE não foi vinculado. Revise o prazo no painel e retome o envio.', 502);
     let confirmed = (await this.list('/products', { reference: data.reference })).find(p => p.erpId === codes.product);
     if (!confirmed || confirmed.deadlineErpId !== catalog.deadline.erpId) throw new ForcaError('Não foi possível confirmar o prazo PE no produto. Retome o envio para concluir.', 502);
+    if ((confirmed.productOpenGrid ?? confirmed.productsOpenGrid ?? confirmed.openGrid) !== data.openGrid) throw new ForcaError('A grade escolhida não foi confirmada pelo Força de vendas. Confira a grade no painel antes de retomar.', 502);
     if ((confirmed.productPromptDelivery ?? confirmed.promptDelivery) !== true) throw new ForcaError('O produto precisa estar com Pronta entrega = Sim. Confira esse campo no painel antes de retomar.', 409);
     if ((confirmed.productIsVisibleForca ?? confirmed.isVisibleForca) !== true) {
       const visibility = await this.request('PATCH', '/products/visible', [{ productErpId: codes.product, isVisibleForca: true, isVisibleB2B: (confirmed.productIsVisibleB2B ?? confirmed.isVisibleB2B) === true }]);
@@ -173,10 +189,16 @@ export class ForcaClient {
     const existingSkus = previous ? (await this.list('/skus')).filter(s => s.variantErpId === codes.variant) : [];
     if (existingSkus.some(s => !data.sizes.includes(s.size))) throw new ForcaError('Mantenha os tamanhos originais para retomar este cadastro.', 409);
     for (const size of data.sizes) {
+      const quantity = data.quantities.find(q => q.size === size);
       const existingSku = await this.request('GET', `/skus/${encodeURIComponent(codes.sku(size))}`, undefined, { notFound: true });
       if (existingSku && (existingSku.variantErpId !== codes.variant || existingSku.size !== size || Number(existingSku.price) !== Number(data.price))) throw new ForcaError('Este tamanho já foi cadastrado com outros dados. Revise o cadastro no painel do Força de vendas.', 409);
+      if (existingSku && (Number(existingSku.minQuantity ?? 1) !== quantity.minQuantity || Number(existingSku.multipleQuantity ?? 1) !== quantity.multipleQuantity)) throw new ForcaError(`Mantenha as quantidades originais do tamanho ${size} para retomar. Ajuste o produto existente no painel.`, 409);
       if (!existingSku) await this.request('POST', '/skus', { erpId: codes.sku(size), code: codes.skuCode(size), size, stockB2B: INITIAL_STOCK, stockForca: INITIAL_STOCK,
-        price: data.price, minQuantity: 1, multipleQuantity: 1, variantErpId: codes.variant, companyErpId: this.company });
+        price: data.price, minQuantity: quantity.minQuantity, multipleQuantity: quantity.multipleQuantity, variantErpId: codes.variant, companyErpId: this.company });
+      if (!existingSku) {
+        const saved = await this.request('GET', `/skus/${encodeURIComponent(codes.sku(size))}`, undefined, { notFound: true });
+        if (!saved || Number(saved.minQuantity) !== quantity.minQuantity || Number(saved.multipleQuantity) !== quantity.multipleQuantity) throw new ForcaError(`As quantidades do tamanho ${size} não foram confirmadas. Confira o cadastro no painel antes de retomar.`, 502);
+      }
       if (existingSku && !/^[0-9]{16}$/.test(existingSku.code)) throw new ForcaError('O tamanho existente precisa ter um código numérico de 16 dígitos. Ajuste esse código no painel antes de retomar.', 409);
       await this.request('POST', '/prices', { erpId: codes.price(size), price: data.price, skuErpId: codes.sku(size), skuCode: existingSku?.code || codes.skuCode(size), priceTableErpId: this.table, companyErpId: this.company });
     }
@@ -190,6 +212,6 @@ export class ForcaClient {
       if (uploaded.some(p => p.productErpId === codes.product && Number(p.order) === photo.order && p.alreadyExists)) existingImageCount++;
       filenames.push(filename);
     }
-    return { reference: data.reference, productErpId: codes.product, sizes: data.sizes, price: data.price, stock: INITIAL_STOCK, table: this.table, deadline: DEFAULT_DEADLINE, promptDelivery: true, visibleForca: true, filename: filenames[0], filenames, imageCount: PRODUCT_IMAGE_COUNT, existingImageCount };
+    return { reference: data.reference, productErpId: codes.product, sizes: data.sizes, openGrid: data.openGrid, quantities: data.quantities, price: data.price, stock: INITIAL_STOCK, table: this.table, deadline: DEFAULT_DEADLINE, promptDelivery: true, visibleForca: true, filename: filenames[0], filenames, imageCount: PRODUCT_IMAGE_COUNT, existingImageCount };
   }
 }

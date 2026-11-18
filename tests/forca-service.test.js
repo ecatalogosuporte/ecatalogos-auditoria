@@ -12,6 +12,7 @@ function upstream() {
   let incompleteDeadline = false;
   let unconfirmedImage = null;
   let occupiedOrder = null;
+  let ignoreGrid = false, ignoreQuantities = false;
   const catalog = { '/brands': [{ erpId: 'BR1', name: 'Marca', address: { private: 'unused' } }], '/branches': [{ erpId: 'FIL1', name: 'Nacional' }],
     '/genders': [{ erpId: 'U', name: 'Unissex' }], '/colors': [{ erpId: 'AZ', name: 'Azul', hexCode: '#0000ff' }],
     '/categories': [{ erpId: 'CAT1', name: 'Pijamas', brandErpId: 'BR1' }], '/price-tables': [{ erpId: 'erp-feiras', description: 'Tabela de Preços Padrão', companyErpId: '2000', visible: true }], '/deadlines': [{ erpId: 'D1', name: 'PE' }] };
@@ -50,15 +51,15 @@ function upstream() {
       for (const item of body) Object.assign(products.get(item.productErpId), { isVisibleForca: item.isVisibleForca, isVisibleB2B: item.isVisibleB2B });
       return response({ total: 1, updated: 1, notUpdated: 0 });
     }
-    if (path === '/products') products.set(body.erpId, body);
+    if (path === '/products') products.set(body.erpId, ignoreGrid ? { ...body, openGrid: !body.openGrid } : body);
     else if (path === '/variants') variants.set(body.erpId, body);
-    else if (path === '/skus') skus.set(body.erpId, body);
+    else if (path === '/skus') skus.set(body.erpId, ignoreQuantities ? { ...body, minQuantity: 1, multipleQuantity: 1 } : body);
     else if (path === '/prices') prices.set(body.erpId, body);
     else if (path === '/categories') catalog[path].push(body);
     else throw new Error(`Unexpected request: ${method} ${path}`);
     return response(body, 201);
   };
-  return { client: new ForcaClient(env, fetcher), writes, products, variants, skus, prices, catalog, failOnce: path => { failPath = path; }, failDeadline: () => { incompleteDeadline = true; }, unconfirmImage: order => { unconfirmedImage = order; }, occupyImage: order => { occupiedOrder = order; } };
+  return { client: new ForcaClient(env, fetcher), writes, products, variants, skus, prices, catalog, failOnce: path => { failPath = path; }, failDeadline: () => { incompleteDeadline = true; }, unconfirmImage: order => { unconfirmedImage = order; }, occupyImage: order => { occupiedOrder = order; }, ignoreGrid: () => { ignoreGrid = true; }, ignoreQuantities: () => { ignoreQuantities = true; } };
 }
 
 const image = () => sharp({ create: { width: 30, height: 40, channels: 3, background: '#abc' } }).png().toBuffer().then(buffer => new Blob([buffer], { type: 'image/png' }));
@@ -171,4 +172,66 @@ test('an image conflict for another position is not treated as upload success', 
   const client = new ForcaClient(env, async url => new Response(JSON.stringify(new URL(url).pathname === '/auth' ? { resource: { token: 'token' } } : { message: 'Já existem imagens nas seguintes ordens: 2. Delete-as antes ou escolha outras ordens.' }), { status: new URL(url).pathname === '/auth' ? 200 : 409 }));
   const form = new FormData(); form.append('images', new Blob(['photo']), 'EAexample--1.jpg');
   await assert.rejects(client.request('POST', '/images', form), /recusou a etapa da imagem/);
+});
+
+test('open and closed grids send individual fixed and minimum quantities without changing stock or prices', async () => {
+  for (const openGrid of [true, false]) {
+    const backend = upstream(), catalog = await backend.client.catalog();
+    const quantities = input.sizes.map((size, i) => ({ size, multipleQuantity: i + 1, minQuantity: (i + 1) * 2 }));
+    const receipt = await backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, openGrid, quantities }, image: await image(), catalog });
+    assert.equal([...backend.products.values()][0].openGrid, openGrid);
+    assert.equal(receipt.openGrid, openGrid); assert.deepEqual(receipt.quantities, quantities);
+    for (const sku of backend.skus.values()) {
+      const q = quantities.find(q => q.size === sku.size);
+      assert.equal(sku.multipleQuantity, q.multipleQuantity); assert.equal(sku.minQuantity, q.minQuantity);
+      assert.equal(sku.stockForca, 6000); assert.equal(sku.price, '79.90');
+    }
+  }
+});
+
+test('invalid grids and quantities are rejected, including missing sizes, duplicates, fractions and empty values', () => {
+  const quantities = input.sizes.map(size => ({ size, multipleQuantity: 1, minQuantity: 1 }));
+  for (const openGrid of ['false', null, 0]) assert.throws(() => validateProduct({ ...input, openGrid }), /grade/);
+  for (const bad of [null, {}, [], quantities.slice(1), [quantities[0], ...quantities.slice(0, 3)], [{ ...quantities[0], size: 'X' }, ...quantities.slice(1)]]) {
+    assert.throws(() => validateProduct({ ...input, quantities: bad }), /quantidades/);
+  }
+  for (const key of ['minQuantity', 'multipleQuantity']) for (const value of [0, -1, 1.5, '', ' ', null, true, 1000000, 'abc']) {
+    assert.throws(() => validateProduct({ ...input, quantities: [{ ...quantities[0], [key]: value }, ...quantities.slice(1)] }), /quantidades inteiras/);
+  }
+  const normalized = validateProduct({ ...input, openGrid: false, quantities: quantities.map(q => ({ ...q, minQuantity: '2', multipleQuantity: '3' })) });
+  assert.deepEqual(validateProduct(normalized), normalized);
+});
+
+test('retry restores quantities and grade from the catalog and refuses silent changes to an existing product', async () => {
+  const backend = upstream(), catalog = await backend.client.catalog(), photo = await image();
+  const quantities = input.sizes.map(size => ({ size, minQuantity: 2, multipleQuantity: 3 }));
+  const original = { ...input, openGrid: false, quantities };
+  await backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: original, image: photo, catalog });
+  [...backend.skus.values()][0].stockForca = 123;
+  await backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: original, image: photo, catalog });
+  assert.equal([...backend.skus.values()][0].stockForca, 123);
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...original, openGrid: true }, image: photo, catalog }), /grade original/);
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...original, quantities: quantities.map(q => ({ ...q, minQuantity: 4 })) }, image: photo, catalog }), /quantidades originais/);
+  assert.equal([...backend.skus.values()][0].minQuantity, 2);
+});
+
+test('the catalog keeps missing ERP links visible and does not expose private brand fields or allow publication by name', async () => {
+  const backend = upstream();
+  backend.catalog['/brands'].push({ erpId: null, name: 'Moda Feminina', address: { private: 'secret' } });
+  backend.catalog['/categories'].push({ erpId: null, name: 'Roupas', brandErpId: null }, { erpId: 'CAT2', name: 'Calçados', brandErpId: null });
+  const catalog = await backend.client.catalog();
+  assert.deepEqual(catalog.brands[1], { erpId: null, name: 'Moda Feminina' });
+  assert.equal(catalog.categories.length, 3);
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, brandErpId: 'Moda Feminina' }, image: await image(), catalog }), /cadastros disponíveis/);
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, categoryErpId: 'CAT2' }, image: await image(), catalog }), /categoria da marca/);
+  assert.equal(backend.writes.length, 0);
+});
+
+test('successful HTTP writes are not enough if the API ignores the selected grid or quantities', async () => {
+  for (const ignored of ['ignoreGrid', 'ignoreQuantities']) {
+    const backend = upstream(), catalog = await backend.client.catalog();
+    backend[ignored]();
+    await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, openGrid: false, quantities: input.sizes.map(size => ({ size, minQuantity: 2, multipleQuantity: 3 })) }, image: await image(), catalog }), ignored === 'ignoreGrid' ? /grade escolhida não foi confirmada/ : /quantidades do tamanho P não foram confirmadas/);
+    assert.equal(backend.writes.some(w => w.path === '/images'), false);
+  }
 });

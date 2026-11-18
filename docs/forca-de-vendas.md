@@ -10,6 +10,8 @@ Regras definidas pelo responsável para o formulário de integração:
 - Referência: exatamente **00.00.000**, com sete dígitos e dois pontos. Validar com `/^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/` e consultar a disponibilidade antes do cadastro. O código ERP é um identificador separado.
 - Cada SKU recebe um código de exatamente **16 dígitos numéricos**, mantido como string para evitar perda de precisão.
 - Grade inicial: P, M, G e GG; os tamanhos podem ser ajustados antes do cadastro.
+- **Grade aberta ou fechada**: selecionável antes do envio, gravada em `openGrid` e confirmada por consulta posterior.
+- **Quantidade fixa (G.F.) e mínima por tamanho**: padrão 1, com botão para aplicar os mesmos valores a todos e ajuste individual. São enviadas em `multipleQuantity` e `minQuantity`, respectivamente, e confirmadas por leitura do SKU. A configuração não altera o estoque inicial de 6.000 nem o preço único.
 
 ## Exemplo validado em 17/11/2026
 
@@ -50,7 +52,13 @@ As variáveis estão descritas em `.env.example`. A configuração local está n
 
 O backend verifica a sessão do Supabase, o proprietário do comparativo e a aprovação, e baixa a imagem do Storage privado. Não utiliza chave `service_role`. Não é necessária migração SQL adicional: o uso é registrado nos campos existentes. O formulário exige acesso ao servidor (`npm run dev` ou Vercel); o HTML portátil mantém os demais recursos, mas não hospeda essa API.
 
-Os cadastros de marca, filial, gênero e categoria precisam ter códigos ERP para serem selecionados. Uma categoria nova pode ser criada no próprio formulário, dentro da marca escolhida. O nome da cor/variante é informado em texto, como “Azul”. A integração permite uma variante por produto neste fluxo inicial.
+Os cadastros de marca, filial, gênero e categoria precisam ter códigos ERP para serem selecionados. Todas as marcas retornadas pela API aparecem no formulário; as sem ERP ficam desabilitadas e identificadas como vínculo pendente. As categorias disponíveis são filtradas pela marca; categorias sem ERP ou sem vínculo de marca identificável também são exibidas como pendentes. O painel de pendências mostra os nomes, sem endereços ou outros dados privados das marcas.
+
+Na consulta de 18/11/2026, a API retornou 21 marcas, das quais 19 sem ERP, e 32 categorias, das quais 30 sem os vínculos necessários. A API pública atualiza cadastros por ERP e não expõe o identificador interno necessário para atribuir ERP aos já existentes sem código. O ajuste precisa ser feito no painel do Força de vendas: atribuir ERP às marcas e categorias existentes e conferir seus vínculos. Fechar e reabrir o cadastro da Auditoria atualiza as listas. A integração não duplica cadastros para contornar a ausência desses códigos.
+
+Uma categoria nova pode ser criada no próprio formulário, dentro da marca escolhida. O nome da cor/variante é informado em texto, como “Azul”. A integração permite uma variante por produto neste fluxo inicial.
+
+Ao retomar um envio, o formulário recupera a grade e as quantidades por tamanho do produto existente. Retomadas preservam estoque e configuração; alterações nesses dados de um produto já criado devem ser feitas no painel, conforme o aviso do formulário.
 
 
 ## Envio confirmado pelo formulário do Auditoria
