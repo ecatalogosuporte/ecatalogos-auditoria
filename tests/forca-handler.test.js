@@ -4,7 +4,7 @@ import { createForcaHandler } from '../server/forca-handler.js';
 import { ForcaError, productCodes } from '../server/forca-service.js';
 
 const owner = 'owner-id';
-const fields = { pairId: 'pair', name: 'Pijama', reference: '90.00.123', price: '79.90', sizes: ['P', 'M'], imageSlot: 'after', brandErpId: 'brand', branchErpId: 'branch', genderErpId: 'gender', variantName: 'Azul', categoryErpId: 'category' };
+const fields = { pairId: 'pair', name: 'Pijama', reference: '90.00.1234', price: '79.90', sizes: ['P', 'M'], imageSlot: 'after', brandErpId: 'brand', branchErpId: 'branch', genderErpId: 'gender', variantName: 'Azul', categoryErpId: 'category' };
 
 function fixture(extraEnv = {}) {
   const row = { id: 'pair', owner_id: owner, name: 'Original', review_status: 'approved', after_path: owner + '/project/pair/after.png', before_path: owner + '/project/pair/before.png', is_used: true, used_in: 'Catálogo', usage_tools: ['b2b'] };
@@ -23,9 +23,10 @@ function fixture(extraEnv = {}) {
       return query;
     } };
   const handler = createForcaHandler({ env: { VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public-key', ...extraEnv }, supabaseFactory: () => db,
-    forcaFactory: () => ({ catalog: async () => ({ brands: [], branches: [], categories: [], genders: [], colors: [], table: { erpId: 'erp-feiras' } }), lookup: async () => state.existing || null, list: async path => path === '/variants' ? state.variants || [] : state.skus || [], suggestReference: async () => '90.00.123',
+    forcaFactory: () => ({ catalog: async () => ({ brands: [], branches: [], categories: [], genders: [], colors: [], table: { erpId: 'erp-feiras' } }), lookup: async () => state.existing || null, list: async path => path === '/variants' ? state.variants || [] : state.skus || [], suggestReference: async () => '90.00.1234',
       createBrand: async name => { state.brandNames ||= []; state.brandNames.push(name); return { brand: { erpId: 'AB1234', name, minValue: '2000.00', visible: true }, alreadyExists: false }; },
       publish: async args => {
+        state.lastInput = args.input;
         state.published++; assert.equal(args.pairId, 'pair'); assert.equal(args.ownerId, owner);
         if (state.fail) throw new ForcaError('Falha no envio da imagem.', 502);
         if (state.changed) row.after_path = owner + '/different.png';
@@ -47,6 +48,18 @@ test('the server verifies the session and ownership before consulting or publish
   assert.equal((await invoke({ body: { ...fields, pairId: 'foreign-pair' } })).statusCode, 404);
   state.row.owner_id = 'other-owner'; assert.equal((await invoke()).statusCode, 404);
   assert.equal(state.published, 0); assert.equal(state.downloads.length, 0);
+});
+
+test('only the stored reference of the owned product can enable legacy-format resumption', async () => {
+  const { state, invoke } = fixture();
+  const legacy = { ...fields, reference: '90.00.123', existingReference: '90.00.123' };
+  assert.equal((await invoke({ body: legacy })).statusCode, 400);
+  assert.equal(state.published, 0); assert.equal(state.downloads.length, 0);
+  state.existing = { productsReference: '90.00.123' };
+  assert.equal((await invoke({ body: legacy })).statusCode, 200);
+  assert.equal(state.lastInput.reference, '90.00.123');
+  assert.equal((await invoke({ body: { ...legacy, reference: '90.00.124' } })).statusCode, 400);
+  assert.equal(state.published, 1);
 });
 
 test('creating brands requires an approved owned comparison and accepts only the legal name from the client', async () => {
@@ -102,7 +115,7 @@ test('usage changes made by another reviewer during publication are merged witho
 test('catalog returns a suggested reference only for an approved owned pair; methods and oversized bodies are rejected', async () => {
   const { invoke } = fixture();
   const catalog = await invoke({ method: 'GET', url: '/api/forca?pairId=pair' });
-  assert.equal(catalog.statusCode, 200); assert.equal(catalog.data.reference, '90.00.123');
+  assert.equal(catalog.statusCode, 200); assert.equal(catalog.data.reference, '90.00.1234');
   assert.equal((await invoke({ method: 'DELETE' })).statusCode, 405);
   assert.equal((await invoke({ body: { ...fields, oversized: 'x'.repeat(17000) } })).statusCode, 413);
 });

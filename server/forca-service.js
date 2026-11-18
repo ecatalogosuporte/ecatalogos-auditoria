@@ -9,7 +9,8 @@ export const DEFAULT_TABLE = 'erp-feiras';
 export const INITIAL_STOCK = 6000;
 export const DEFAULT_DEADLINE = 'PE';
 export const BRAND_MIN_VALUE = '2000.00';
-export const REFERENCE_PATTERN = /^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/;
+export const REFERENCE_PATTERN = /^[0-9]{2}\.[0-9]{2}\.[0-9]{4}$/;
+const LEGACY_REFERENCE_PATTERN = /^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/;
 const EMPTY_LIST_MESSAGES = { '/variants': 'Variantes não encontradas.' };
 
 export function validateBrandName(name) {
@@ -33,14 +34,15 @@ export function productCodes(ownerId, pairId) {
     price: size => `P${createHash('sha256').update(`${hash}:${size}`).digest('hex').slice(0, 8)}` };
 }
 
-export function validateProduct(input) {
+export function validateProduct(input, { existingReference } = {}) {
   const text = (key, max) => {
     const value = String(input[key] || '').trim();
     if (!value || value.length > max) throw new ForcaError(`Preencha ${key === 'name' ? 'o nome' : key === 'categoryName' ? 'a nova categoria' : 'os dados do produto'} corretamente.`);
     return value;
   };
-  const name = text('name', 150), reference = text('reference', 9);
-  if (!REFERENCE_PATTERN.test(reference)) throw new ForcaError('A referência deve ter o formato 00.00.000, com sete números.');
+  const name = text('name', 150), reference = text('reference', 10);
+  const legacyResume = reference === existingReference && LEGACY_REFERENCE_PATTERN.test(reference);
+  if (!REFERENCE_PATTERN.test(reference) && !legacyResume) throw new ForcaError('A referência deve ter o formato 00.00.0000, com oito números.');
   const price = Number(input.price);
   if (!Number.isFinite(price) || price <= 0 || price > 999999 || Math.abs(price * 100 - Math.round(price * 100)) > 0.00001) throw new ForcaError('Informe um preço válido, com até duas casas decimais.');
   const sizes = Array.isArray(input.sizes) ? input.sizes.map(s => String(s).trim().toUpperCase()) : [];
@@ -190,7 +192,7 @@ export class ForcaClient {
     const existing = await this.lookup(ownErpId);
     if (existing) return existing.productsReference || existing.reference;
     for (let attempt = 0; attempt < 5; attempt++) {
-      const digits = String(randomInt(10000000)).padStart(7, '0');
+      const digits = String(randomInt(100000000)).padStart(8, '0');
       const reference = `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
       if (await this.referenceAvailable(reference, ownErpId)) return reference;
     }
@@ -198,7 +200,9 @@ export class ForcaClient {
   }
 
   async publish({ ownerId, pairId, input, image, catalog }) {
-    const data = validateProduct(input), codes = productCodes(ownerId, pairId);
+    const codes = productCodes(ownerId, pairId);
+    const previous = await this.lookup(codes.product);
+    const data = validateProduct(input, { existingReference: previous?.productsReference || previous?.reference });
     if (catalog.deadline?.name !== DEFAULT_DEADLINE || !catalog.deadline.erpId) throw new ForcaError('O prazo de entrega PE precisa estar configurado antes do envio.', 409);
     const find = (items, id) => items.find(p => p.erpId === id);
     const brand = find(catalog.brands, data.brandErpId);
@@ -206,7 +210,6 @@ export class ForcaClient {
     const category = find(catalog.categories, data.categoryErpId);
     if (data.categoryErpId !== '__new' && (!category || (category.shared !== true && category.brandErpId !== data.brandErpId))) throw new ForcaError('Selecione uma categoria disponível para a marca escolhida.');
     if (!await this.referenceAvailable(data.reference, codes.product)) throw new ForcaError('Essa referência já pertence a outro produto. Escolha outra.', 409);
-    const previous = await this.lookup(codes.product);
     if (previous && (previous.productsReference || previous.reference) !== data.reference) throw new ForcaError(`Este comparativo já tem um cadastro na referência ${previous.productsReference || previous.reference}. Reabra o formulário para retomar.`, 409);
     const source = Buffer.from(await image.arrayBuffer());
     if (!source.length || source.length > 20 * 1024 * 1024) throw new ForcaError('A imagem deve ter até 20 MB.');
@@ -225,7 +228,8 @@ export class ForcaClient {
     if (previous) {
       const matches = [['productsName', 'name', data.name], ['productsBrandErpId', 'brandErpId', data.brandErpId], ['productsBranchErpId', 'branchErpId', data.branchErpId], ['productsGenderErpId', 'genderErpId', data.genderErpId], ['productsCategoryErpId', 'categoryErpId', categoryErpId]];
       if (matches.some(([a, b, expected]) => (previous[a] ?? previous[b]) !== expected)) throw new ForcaError('Mantenha os dados originais para retomar este produto. Alterações no cadastro existente devem ser feitas no painel.', 409);
-      if ((previous.productsOpenGrid ?? previous.openGrid) !== data.openGrid) throw new ForcaError('Mantenha a grade original para retomar este produto. Altere a grade do produto existente no painel.', 409);
+      const existingGrid = previous.productsOpenGrid ?? previous.openGrid;
+      if (existingGrid !== data.openGrid) throw new ForcaError(`Mantenha a grade original${typeof existingGrid === 'boolean' ? ` (${existingGrid ? 'Aberta' : 'Fechada'})` : ''} para retomar este produto. Altere a grade do produto existente no painel.`, 409);
     }
     if (!previous) await this.request('POST', '/products', { erpId: codes.product, companyErpId: this.company, name: data.name, reference: data.reference,
       branchErpId: data.branchErpId, brandErpId: data.brandErpId, genderErpId: data.genderErpId, categoryErpId,
@@ -235,7 +239,13 @@ export class ForcaClient {
     if (Number(binding?.updated) !== 1 || Number(binding?.notUpdated) !== 0) throw new ForcaError('O produto foi criado, mas o prazo PE não foi vinculado. Revise o prazo no painel e retome o envio.', 502);
     let confirmed = (await this.list('/products', { reference: data.reference })).find(p => p.erpId === codes.product);
     if (!confirmed || confirmed.deadlineErpId !== catalog.deadline.erpId) throw new ForcaError('Não foi possível confirmar o prazo PE no produto. Retome o envio para concluir.', 502);
-    if ((confirmed.productOpenGrid ?? confirmed.productsOpenGrid ?? confirmed.openGrid) !== data.openGrid) throw new ForcaError('A grade escolhida não foi confirmada pelo Força de vendas. Confira a grade no painel antes de retomar.', 502);
+    const savedGrid = confirmed.productOpenGrid ?? confirmed.productsOpenGrid ?? confirmed.openGrid;
+    if (savedGrid !== data.openGrid) {
+      const detail = typeof savedGrid === 'boolean'
+        ? `A API registrou ${savedGrid ? 'Aberta' : 'Fechada'}; você selecionou ${data.openGrid ? 'Aberta' : 'Fechada'}. Para usar a grade registrada, selecione ${savedGrid ? 'Aberta' : 'Fechada'} no formulário e envie novamente. Para manter a outra opção, a gravação precisa ser corrigida no Força de vendas.`
+        : 'Confira a grade no painel antes de retomar.';
+      throw new ForcaError(`A grade escolhida não foi confirmada pelo Força de vendas. ${detail}`, 502);
+    }
     if ((confirmed.productPromptDelivery ?? confirmed.promptDelivery) !== true) throw new ForcaError('O produto precisa estar com Pronta entrega = Sim. Confira esse campo no painel antes de retomar.', 409);
     if ((confirmed.productIsVisibleForca ?? confirmed.isVisibleForca) !== true) {
       const visibility = await this.request('PATCH', '/products/visible', [{ productErpId: codes.product, isVisibleForca: true, isVisibleB2B: (confirmed.productIsVisibleB2B ?? confirmed.isVisibleB2B) === true }]);

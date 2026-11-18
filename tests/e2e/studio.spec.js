@@ -782,7 +782,7 @@ test('products edit tool usage directly in the gallery, preserve failed drafts a
 });
 
 function forcaCatalog() {
-  return { reference: '90.00.123', existing: null, table: { erpId: 'erp-feiras', description: 'Tabela de Preços Padrão' }, deadline: { erpId: 'D1', name: 'PE' },
+  return { reference: '90.00.1234', existing: null, table: { erpId: 'erp-feiras', description: 'Tabela de Preços Padrão' }, deadline: { erpId: 'D1', name: 'PE' },
     brands: [{ erpId: 'BR1', name: 'Marca de demonstração' }], branches: [{ erpId: 'FIL1', name: 'Nacional' }],
     genders: [{ erpId: 'U', name: 'Unissex' }], colors: [{ erpId: 'AZ', name: 'Azul' }],
     categories: [{ erpId: 'CAT1', name: 'Pijamas', brandErpId: 'BR1' }] };
@@ -906,7 +906,7 @@ test('approved images create products through the app with one price, retained d
     if (route.request().method() === 'GET') return route.fulfill({ json: forcaCatalog() });
     posts++;
     const body = route.request().postDataJSON();
-    expect(body).toMatchObject({ reference: '90.00.123', price: '79.90', sizes: ['P', 'M', 'G', 'GG'], imageSlot: 'after', brandErpId: 'BR1', categoryErpId: 'CAT1', openGrid: false });
+    expect(body).toMatchObject({ reference: '90.00.1234', price: '79.90', sizes: ['P', 'M', 'G', 'GG'], imageSlot: 'after', brandErpId: 'BR1', categoryErpId: 'CAT1', openGrid: false });
     expect(body.quantities).toEqual(['P', 'M', 'G', 'GG'].map(size => ({ size, multipleQuantity: size === 'GG' ? '4' : '2', minQuantity: '3' })));
     expect(body).not.toHaveProperty('stockForca'); expect(body).not.toHaveProperty('priceTableErpId');
     if (fail) return route.fulfill({ status: 502, json: { error: 'O produto foi criado, mas o envio da imagem precisa ser retomado.' } });
@@ -918,7 +918,7 @@ test('approved images create products through the app with one price, retained d
   await expect(page.locator('#gallery [data-forca]')).toBeDisabled();
   await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
   await page.locator('#reviewCards [data-forca]').click();
-  await expect(page.locator('#forcaReference')).toHaveValue('90.00.123');
+  await expect(page.locator('#forcaReference')).toHaveValue('90.00.1234');
   await expect(page.locator('#forcaModal')).toContainText('6.000 por tamanho');
   await expect(page.locator('#forcaModal')).toContainText('Tabela de Preços Padrão');
   await expect(page.locator('#forcaModal')).toContainText('3 recortes com zoom');
@@ -942,6 +942,9 @@ test('approved images create products through the app with one price, retained d
   await page.locator('#forcaSubmit').click();
   expect(posts).toBe(0);
   await page.locator('#forcaReference').fill('90.00.123');
+  await page.locator('#forcaSubmit').click();
+  expect(posts).toBe(0);
+  await page.locator('#forcaReference').fill('90.00.1234');
   await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-form-desktop.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -954,7 +957,7 @@ test('approved images create products through the app with one price, retained d
   fail = false;
   await page.locator('#forcaSubmit').click();
   await expect(page.locator('#forcaSuccess')).toBeVisible();
-  await expect(page.locator('#forcaSuccessText')).toContainText('90.00.123');
+  await expect(page.locator('#forcaSuccessText')).toContainText('90.00.1234');
   await expect(page.locator('#forcaSuccessText')).toContainText('Tabela de Preços Padrão');
   await expect(page.locator('#forcaSuccessText')).toContainText('Prazo de entrega: PE');
   await expect(page.locator('#forcaSuccessText')).toContainText('3 detalhes com zoom enviados');
@@ -971,11 +974,15 @@ test('Força shows missing brands and categories with their pending ERP links, f
   catalog.brands.push({ erpId: 'BR2', name: 'Marca 2' }, { erpId: null, name: 'Moda Feminina' });
   catalog.categories.push({ erpId: 'CAT2', name: 'Calçados', brandErpId: 'BR2' }, { erpId: null, name: 'Perfumes' }, { erpId: 'NO-BRAND', name: 'Bolsas' });
   catalog.existing = { name: 'Produto já enviado', reference: catalog.reference, brandErpId: 'BR1', branchErpId: 'FIL1', genderErpId: 'U', categoryErpId: 'CAT1', variantName: 'Principal', sizes: ['20', '21'], price: '129.00', openGrid: false, quantities: [{ size: '20', multipleQuantity: 2, minQuantity: 3 }, { size: '21', multipleQuantity: 4, minQuantity: 5 }] };
+  catalog.reference = catalog.existing.reference = '90.00.123';
   await context.route(/\/api\/forca(?:\?|$)/, route => route.fulfill({ json: catalog }));
   await page.goto('/'); await login(page); await addPair(page);
   await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
   await page.locator('#reviewCards [data-forca]').click();
   await expect(page.locator('#forcaName')).toHaveValue('Produto já enviado');
+  await expect(page.locator('#forcaReference')).toHaveValue('90.00.123');
+  await expect(page.locator('#forcaReference')).not.toBeEditable();
+  await expect(page.locator('#forcaReferenceHelp')).toContainText('Referência já cadastrada');
   await expect(page.locator('#forcaOpenGrid')).toHaveValue('false');
   await expect(page.getByLabel('Quantidade fixa 20', { exact: true })).toHaveValue('2');
   await expect(page.getByLabel('Quantidade mínima 21', { exact: true })).toHaveValue('5');

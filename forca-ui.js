@@ -26,6 +26,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
     active?.controller.abort(); active = null;
     modal.hidden = true; releasePreview(); feedback('');
     $('forcaBrandEditor').hidden = true; $('forcaBrandName').required = false; $('forcaNewBrand').setAttribute('aria-expanded', 'false'); $('forcaBrandResult').hidden = true;
+    referenceSettings(false);
     form.reset(); quantityDraft.clear(); $('forcaQuantityRows').replaceChildren(); document.body.style.overflow = '';
   }
 
@@ -142,6 +143,12 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
     if (blob) { previewUrl = URL.createObjectURL(blob); $('forcaPreview').src = previewUrl; }
   }
 
+  function referenceSettings(existing) {
+    $('forcaReference').readOnly = Boolean(existing);
+    $('forcaReference').pattern = existing ? '[0-9]{2}\\.[0-9]{2}\\.[0-9]{3,4}' : '[0-9]{2}\\.[0-9]{2}\\.[0-9]{4}';
+    $('forcaReferenceHelp').textContent = existing ? 'Referência já cadastrada, mantida na retomada deste produto.' : 'Formato: 00.00.0000, com oito números.';
+  }
+
   async function open(pairId) {
     if (pending || !isReady()) return;
     const pair = getPair(pairId);
@@ -167,6 +174,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
       $('forcaVariant').value = selected.variantName || 'Principal';
       categories(selected.categoryErpId);
       $('forcaReference').value = catalog.reference;
+      referenceSettings(existing);
       $('forcaName').value = existing?.name || pair.name;
       $('forcaPrice').value = existing?.price || '';
       $('forcaSizes').value = existing?.sizes?.join(', ') || 'P, M, G, GG';

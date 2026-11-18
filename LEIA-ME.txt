@@ -73,7 +73,7 @@ Aprove o comparativo e clique em “Força de vendas” na galeria ou revisão.
 Confira a imagem, preencha um preço único e escolha marca, tipo, gênero,
 variante e categoria. Os tamanhos começam em P, M, G e GG.
 Cada tamanho novo recebe estoque de 6.000 e código numérico de 16 dígitos.
-A referência segue 00.00.000. Os preços são enviados sempre para a
+A referência segue 00.00.0000. Os preços são enviados sempre para a
 Tabela de Preços Padrão (erp-feiras). O uso da imagem só é marcado após
 concluir o cadastro e o envio da foto.
 Configure as variáveis privadas FORCA_* do .env.example na Vercel.

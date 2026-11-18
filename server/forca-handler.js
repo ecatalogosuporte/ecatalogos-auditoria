@@ -73,7 +73,8 @@ export function createForcaHandler({ env = process.env, supabaseFactory = create
         send(200, { ...catalog, existing: saved, reference: saved?.reference || await forca.suggestReference(codes.product) });
         return;
       }
-      const fields = validateProduct(input);
+      const existing = await forca.lookup(codes.product);
+      const fields = validateProduct(input, { existingReference: existing?.productsReference || existing?.reference });
       const path = pair[`${fields.imageSlot}_path`];
       if (!path || !path.startsWith(ownerId + '/')) throw new ForcaError('A imagem escolhida não está disponível na sua conta.', 409);
       lock = `${ownerId}:${pairId}`;

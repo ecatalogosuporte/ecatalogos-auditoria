@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { ForcaClient, productCodes, validateProduct, brandDefaults, validateBrandName } from '../server/forca-service.js';
+import { ForcaClient, productCodes, validateProduct, brandDefaults, validateBrandName, REFERENCE_PATTERN } from '../server/forca-service.js';
 
 const env = { FORCA_API_EMAIL: 'integration@example.com', FORCA_API_PASSWORD: 'private-password', FORCA_COMPANY_KEY: '2000' };
-const input = { name: 'Pijama azul', reference: '90.00.123', price: '79.90', sizes: ['P', 'M', 'G', 'GG'], imageSlot: 'after', brandErpId: 'BR1', branchErpId: 'FIL1', genderErpId: 'U', variantName: 'Azul', categoryErpId: 'CAT1' };
+const input = { name: 'Pijama azul', reference: '90.00.1234', price: '79.90', sizes: ['P', 'M', 'G', 'GG'], imageSlot: 'after', brandErpId: 'BR1', branchErpId: 'FIL1', genderErpId: 'U', variantName: 'Azul', categoryErpId: 'CAT1' };
 
 function upstream() {
   const writes = [], products = new Map(), variants = new Map(), skus = new Map(), prices = new Map();
@@ -65,6 +65,30 @@ function upstream() {
 }
 
 const image = () => sharp({ create: { width: 30, height: 40, channels: 3, background: '#abc' } }).png().toBuffer().then(buffer => new Blob([buffer], { type: 'image/png' }));
+
+test('new references have eight digits, preserve leading zeros and reject the old seven-digit format', async () => {
+  assert.equal(validateProduct({ ...input, reference: '00.01.0002' }).reference, '00.01.0002');
+  for (const reference of ['90.00.123', '90.00.12345', '90001234', '90.0A.1234']) assert.throws(() => validateProduct({ ...input, reference }));
+  assert.throws(() => validateProduct({ ...input, reference: '90.00.123', existingReference: '90.00.123' }), /00\.00\.0000/);
+  const backend = upstream(), candidates = [];
+  backend.client.referenceAvailable = async reference => { candidates.push(reference); return candidates.length === 2; };
+  const suggested = await backend.client.suggestReference('not-created');
+  assert.equal(candidates.length, 2); assert.ok(candidates.every(r => REFERENCE_PATTERN.test(r) && r.length === 10));
+  assert.equal(suggested, candidates[1]);
+});
+
+test('a preexisting product with a seven-digit reference resumes without renaming it or duplicating its records', async () => {
+  const backend = upstream(), catalog = await backend.client.catalog(), photo = await image();
+  await backend.client.publish({ ownerId: 'owner', pairId: 'pair', input, image: photo, catalog });
+  [...backend.products.values()][0].reference = '90.00.123';
+  [...backend.skus.values()][0].stockForca = 5900;
+  const receipt = await backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, reference: '90.00.123' }, image: photo, catalog });
+  assert.equal(receipt.reference, '90.00.123'); assert.equal(backend.products.size, 1);
+  assert.equal(backend.writes.filter(w => w.path === '/products').length, 1);
+  assert.equal([...backend.skus.values()][0].stockForca, 5900);
+  assert.equal(await backend.client.suggestReference(receipt.productErpId), '90.00.123');
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'new-pair', input: { ...input, reference: '90.00.123' }, image: photo, catalog }), /00\.00\.0000/);
+});
 
 test('new products use the default table, one price, 6000 initial stock and distinct numeric 16-digit SKU codes', async () => {
   const backend = upstream(), catalog = await backend.client.catalog();
@@ -323,7 +347,7 @@ test('successful HTTP writes are not enough if the API ignores the selected grid
   for (const ignored of ['ignoreGrid', 'ignoreQuantities']) {
     const backend = upstream(), catalog = await backend.client.catalog();
     backend[ignored]();
-    await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, openGrid: false, quantities: input.sizes.map(size => ({ size, minQuantity: 2, multipleQuantity: 3 })) }, image: await image(), catalog }), ignored === 'ignoreGrid' ? /grade escolhida não foi confirmada/ : /quantidades do tamanho P não foram confirmadas/);
+    await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, openGrid: false, quantities: input.sizes.map(size => ({ size, minQuantity: 2, multipleQuantity: 3 })) }, image: await image(), catalog }), ignored === 'ignoreGrid' ? /A API registrou Aberta; você selecionou Fechada/ : /quantidades do tamanho P não foram confirmadas/);
     assert.equal(backend.writes.some(w => w.path === '/images'), false);
   }
 });

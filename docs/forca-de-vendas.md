@@ -7,7 +7,8 @@ Regras definidas pelo responsável para o formulário de integração:
 - **Pronta entrega = Sim** e produto **Visível no aplicativo Força de vendas**. Esses padrões são fixos no formulário.
 - Preço único por produto: preencher uma vez e replicar para todos os tamanhos, incluindo os preços vinculados à tabela.
 - Usar sempre a **Tabela de Preços Padrão** já existente na empresa. Não criar uma tabela nova por produto nem selecionar as tabelas “Feira” por semelhança de nome.
-- Referência: exatamente **00.00.000**, com sete dígitos e dois pontos. Validar com `/^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/` e consultar a disponibilidade antes do cadastro. O código ERP é um identificador separado.
+- Referência para novos produtos: exatamente **00.00.0000**, com oito dígitos e dois pontos. Validar com `/^[0-9]{2}\.[0-9]{2}\.[0-9]{4}$/` e consultar a disponibilidade antes do cadastro. O código ERP é um identificador separado.
+- Referências antigas já registradas são mantidas ao retomar o mesmo produto. A compatibilidade com sete dígitos depende da consulta ao produto existente por seu ERP; não pode ser habilitada pelo cliente para criar outro cadastro. No formulário, a referência existente aparece somente para leitura. Os exemplos históricos abaixo conservam os códigos efetivamente usados na época.
 - Cada SKU recebe um código de exatamente **16 dígitos numéricos**, mantido como string para evitar perda de precisão.
 - Tamanhos iniciais: P, M, G e GG. O campo **Modelo de tamanhos** preenche Roupa; Calçado Masculino (39, 40, 41, 42); Calçado Infantil (20, 21, 22, 23); Único (Unico); Pack (Pack); Óculos (50, 54, 56, 58); Luva (70, 80, 95, 111); Capacete (56, 58, 60, 62); Calçado Feminino (34, 35, 36, 37, 38); ou Roupa Infantil (2, 4, 6, 8). O campo continua editável e indica Personalizado quando os tamanhos divergem dos modelos. A tabela de quantidades acompanha os tamanhos escolhidos.
 - **Grade fechada por padrão** nos novos produtos, independentemente de preferências antigas. É possível selecionar Aberta antes do envio. A escolha é gravada em `openGrid` e confirmada por consulta posterior. Produtos já existentes recuperam sua própria grade e seus tamanhos ao retomar o cadastro.
@@ -99,6 +100,8 @@ Em 17/11/2026, a versão local do app cadastrou **Pijama azul**, referência **7
 ## Prazo e disponibilidade
 
 O cadastro inclui `deadlineErpId` e `promptDelivery: true`. Também executa `PATCH /deadlines/products` e exige confirmação de que o produto foi atualizado. Uma consulta posterior valida o prazo, a pronta entrega e a visibilidade; falhas nessa etapa não registram um envio concluído. Na retomada, a visibilidade no Força de vendas pode ser reativada preservando a configuração de B2B.
+
+**Divergência de grade observada em 18/11/2026:** a API aceita `openGrid: true`, porém o cadastro e a leitura posterior retornam grade fechada. O comportamento foi reproduzido em um produto de teste separado (`AUD-GRID-20261118`, referência `99.99.998`), antes e depois de vincular o prazo. A integração mantém a validação: o aviso mostra a grade enviada e a registrada, sem considerar o envio concluído com uma grade diferente. Para continuar com a grade fechada registrada, selecionar **Fechada** no formulário e retomar pelo mesmo comparativo. A gravação de grade aberta depende de correção no Força de vendas. O produto do usuário não é alterado por esse diagnóstico.
 
 Os dois pijamas de exemplo, referências `90.00.001` e `77.56.159`, foram vinculados ao prazo **PE** e consultados novamente em 17/11/2026. Ambos retornaram prazo ERP `1`, pronta entrega habilitada e visibilidade no Força de vendas habilitada.
 
