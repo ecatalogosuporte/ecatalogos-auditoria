@@ -933,6 +933,36 @@ test('Força shows missing brands and categories with their pending ERP links, f
   await expect(page.locator('#forcaCategory option').filter({ hasText: 'Bolsas' })).toBeDisabled();
 });
 
+test('general categories stay available across brands, distinguish duplicate names by ERP and submit the selected code', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  const catalog = forcaCatalog();
+  catalog.brands.push({ erpId: 'BR2', name: 'Outra marca' });
+  catalog.categories.push({ erpId: '023', name: 'Calçados', shared: true }, { erpId: 'GENERAL', name: 'Calçados', shared: true }, { erpId: 'CAT2', name: 'Calçados', brandErpId: 'BR2' });
+  let posts = 0;
+  await context.route(/\/api\/forca(?:\?|$)/, async route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: catalog });
+    const body = route.request().postDataJSON();
+    expect(body.categoryErpId).toBe('023'); expect(body.brandErpId).toBe('BR2'); posts++;
+    const row = backend.pairs.find(p => p.id === body.pairId);
+    Object.assign(row, { is_used: true, usage_tools: ['forca-de-vendas'] });
+    return route.fulfill({ json: { reference: body.reference, sizes: body.sizes, price: body.price, usage: { isUsed: true, usedIn: '', usageTools: row.usage_tools } } });
+  });
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
+  await page.locator('#reviewCards [data-forca]').click();
+  await page.locator('#forcaBrand').selectOption('BR1');
+  await expect(page.locator('#forcaCategory option[value="023"]')).toBeEnabled();
+  await expect(page.locator('#forcaCategory option[value="023"]')).toHaveText('Calçados — ERP 023');
+  await expect(page.locator('#forcaCategory option[value="CAT2"]')).toHaveCount(0);
+  await expect(page.locator('#forcaCatalogPending')).toBeHidden();
+  await page.locator('#forcaBrand').selectOption('BR2');
+  await expect(page.locator('#forcaCategory option[value="CAT2"]')).toBeEnabled();
+  await expect(page.locator('#forcaCategory option[value="023"]')).toBeEnabled();
+  await page.locator('#forcaCategory').selectOption('023'); await page.locator('#forcaPrice').fill('79.90');
+  await page.locator('#forcaSubmit').click();
+  await expect(page.locator('#forcaSuccess')).toBeVisible(); expect(posts).toBe(1);
+});
+
 test('missing server configuration explains the integration setup and leaves the original workflow available', async ({ page, context }) => {
   await mockSupabase(context);
   await context.route(/\/api\/forca(?:\?|$)/, route => route.fulfill({ status: 503, json: { error: 'Configure a integração do Força de vendas no servidor.' } }));

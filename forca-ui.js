@@ -31,7 +31,9 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
   function options(id, rows, selected = '', unavailable = []) {
     const ready = rows.filter(row => row.erpId), missing = [...rows.filter(row => !row.erpId), ...unavailable];
     const sort = entries => entries.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR'));
-    $(id).innerHTML = '<option value="">Selecione…</option>' + sort(ready).map(row => `<option value="${esc(row.erpId)}">${esc(row.name)}</option>`).join('')
+    const counts = new Map();
+    for (const row of ready) { const name = String(row.name).trim(); counts.set(name, (counts.get(name) || 0) + 1); }
+    $(id).innerHTML = '<option value="">Selecione…</option>' + sort(ready).map(row => `<option value="${esc(row.erpId)}">${esc(row.name)}${counts.get(String(row.name).trim()) > 1 ? ` — ERP ${esc(row.erpId)}` : ''}</option>`).join('')
       + (missing.length ? `<optgroup label="Aguardando vínculo ERP">${sort(missing).map(row => `<option value="" disabled>${esc(row.name)} — vínculo pendente</option>`).join('')}</optgroup>` : '');
     if (ready.some(row => row.erpId === selected)) $(id).value = selected;
     else if (ready.length === 1) $(id).value = ready[0].erpId;
@@ -40,8 +42,8 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
   function categories(selected = '') {
     if (!active?.catalog) return;
     const linkedBrands = new Set(active.catalog.brands.filter(b => b.erpId).map(b => b.erpId));
-    const missing = active.catalog.categories.filter(c => !c.erpId || !linkedBrands.has(c.brandErpId));
-    const rows = active.catalog.categories.filter(c => c.erpId && c.brandErpId === $('forcaBrand').value);
+    const missing = active.catalog.categories.filter(c => !c.erpId || (c.shared !== true && !linkedBrands.has(c.brandErpId)));
+    const rows = active.catalog.categories.filter(c => c.erpId && (c.shared === true || c.brandErpId === $('forcaBrand').value));
     options('forcaCategory', rows, selected, missing);
     $('forcaCategory').insertAdjacentHTML('beforeend', '<option value="__new">＋ Criar nova categoria</option>');
     newCategory();
@@ -49,7 +51,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
 
   function catalogPending(catalog) {
     const brands = catalog.brands.filter(b => !b.erpId), linked = new Set(catalog.brands.filter(b => b.erpId).map(b => b.erpId));
-    const categories = catalog.categories.filter(c => !c.erpId || !linked.has(c.brandErpId));
+    const categories = catalog.categories.filter(c => !c.erpId || (c.shared !== true && !linked.has(c.brandErpId)));
     $('forcaCatalogPending').hidden = !brands.length && !categories.length;
     $('forcaCatalogPendingTitle').textContent = `${brands.length} marca(s) e ${categories.length} categoria(s) aguardam vínculo`;
     $('forcaPendingBrands').textContent = brands.length ? 'Marcas: ' + brands.map(b => b.name.trim()).join(', ') + '.' : '';

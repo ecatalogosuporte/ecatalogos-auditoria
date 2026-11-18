@@ -52,11 +52,19 @@ As variáveis estão descritas em `.env.example`. A configuração local está n
 
 O backend verifica a sessão do Supabase, o proprietário do comparativo e a aprovação, e baixa a imagem do Storage privado. Não utiliza chave `service_role`. Não é necessária migração SQL adicional: o uso é registrado nos campos existentes. O formulário exige acesso ao servidor (`npm run dev` ou Vercel); o HTML portátil mantém os demais recursos, mas não hospeda essa API.
 
-Os cadastros de marca, filial, gênero e categoria precisam ter códigos ERP para serem selecionados. Todas as marcas retornadas pela API aparecem no formulário; as sem ERP ficam desabilitadas e identificadas como vínculo pendente. As categorias disponíveis são filtradas pela marca; categorias sem ERP ou sem vínculo de marca identificável também são exibidas como pendentes. O painel de pendências mostra os nomes, sem endereços ou outros dados privados das marcas.
+Os cadastros de marca, filial, gênero e categoria precisam ter códigos ERP para serem selecionados. Todas as marcas retornadas pela API aparecem no formulário; as sem ERP ficam desabilitadas e identificadas como vínculo pendente. As categorias disponíveis incluem as gerais e as vinculadas à marca selecionada. Categorias de outra marca não aparecem como opções disponíveis. Categorias sem ERP ou com vínculo ainda não identificável continuam pendentes. O painel de pendências mostra os nomes, sem endereços ou outros dados privados das marcas. Nomes repetidos exibem o ERP para distinguir os cadastros.
 
-Na consulta de 18/11/2026, a API retornou 21 marcas, das quais 19 sem ERP, e 32 categorias, das quais 30 sem os vínculos necessários. A API pública atualiza cadastros por ERP e não expõe o identificador interno necessário para atribuir ERP aos já existentes sem código. O ajuste precisa ser feito no painel do Força de vendas: atribuir ERP às marcas e categorias existentes e conferir seus vínculos. Fechar e reabrir o cadastro da Auditoria atualiza as listas. A integração não duplica cadastros para contornar a ausência desses códigos.
+Na consulta atualizada de 18/11/2026, a API retornou **23 marcas e 32 categorias com ERP preenchido**, incluindo os códigos de categoria `001` a `028`. Há 30 categorias gerais e duas vinculadas a marcas específicas. Produtos existentes confirmam o uso dessas categorias gerais. Quando todas as marcas da empresa estão identificadas por ERP, uma categoria com ERP e sem `brandErpId` é disponibilizada como geral. Se houver marca sem ERP, esse vínculo nulo pode ser ambíguo e permanece pendente. Fechar e reabrir o cadastro da Auditoria atualiza as listas. A integração não duplica cadastros para contornar códigos ausentes.
 
 Os códigos usados pela integração devem vir do campo ERP do painel ou da API. IDs internos não substituem esses códigos automaticamente. A proposta SQL anterior foi desativada; o arquivo reservado não contém comandos de alteração. Nenhuma mudança direta no banco é necessária para criar uma marca nova pela integração.
+
+### Paginação dos catálogos
+
+A integração percorre as páginas com `page` e `limit`, aceitando tanto arrays quanto o formato `{ data, total, page, limit }`. Arrays são consultados até uma página vazia; isso evita perder registros quando o servidor limita a quantidade abaixo do `limit` solicitado. Respostas com total encerram a consulta ao atingir esse total. Códigos ERP são mantidos como strings, preservando zeros à esquerda.
+
+No ambiente validado, `/brands` e `/price-tables` ignoram a paginação e repetem a lista inteira; a repetição exata da segunda página desses dois endpoints é tratada como fim. Repetições inesperadas nos demais catálogos ou respostas incompatíveis com o total geram erro, sem disponibilizar uma lista parcial.
+
+Validação real: as categorias foram percorridas em páginas de 10 registros, incluindo a última página vazia. O resultado foi comparado à consulta `/categories?page=1&limit=10000` e contém os mesmos 32 registros e códigos. A carga usa apenas consultas à API, sem alteração no banco.
 
 Uma categoria nova pode ser criada no próprio formulário, dentro da marca escolhida. O nome da cor/variante é informado em texto, como “Azul”. A integração permite uma variante por produto neste fluxo inicial.
 

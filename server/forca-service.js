@@ -107,16 +107,36 @@ export class ForcaClient {
 
   async list(path, query = {}) {
     const rows = [], seen = new Set();
+    let total = null;
     for (let page = 1; page <= 50; page++) {
       const data = await this.request('GET', `${path}?${new URLSearchParams({ ...query, page, limit: 100 })}`, undefined, { notFound: true });
-      if (data === null) return rows;
-      if (!Array.isArray(data)) throw new ForcaError('O catálogo do Força de vendas retornou uma resposta inesperada.', 502);
+      const batch = data === null ? [] : Array.isArray(data) ? data : data?.data;
+      if (!Array.isArray(batch) || batch.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new ForcaError('O catálogo do Força de vendas retornou uma resposta inesperada.', 502);
+      if (data && !Array.isArray(data)) {
+        if (data.page !== undefined && Number(data.page) !== page) throw new ForcaError('O Força de vendas não avançou a página do catálogo. Tente novamente.', 502);
+        if (data.total !== undefined && data.total !== null) {
+          if (!/^[0-9]+$/.test(String(data.total)) || !Number.isSafeInteger(Number(data.total))) throw new ForcaError('O catálogo do Força de vendas retornou uma resposta inesperada.', 502);
+          total = Number(data.total);
+        }
+      }
+      if (!batch.length) {
+        if (total !== null && rows.length < total) throw new ForcaError('O Força de vendas retornou um catálogo incompleto. Tente novamente.', 502);
+        return rows;
+      }
       let added = 0;
-      for (const row of data) {
+      for (const row of batch) {
         const key = JSON.stringify(row);
         if (!seen.has(key)) { seen.add(key); rows.push(row); added++; }
       }
-      if (data.length < 100 || !added) return rows;
+      if (!added) {
+        // These endpoints currently return the entire directory regardless of
+        // page/limit. A repeated second array confirms that observed contract.
+        if (Array.isArray(data) && page === 2 && batch.length === rows.length && ['/brands', '/price-tables'].includes(path)) return rows;
+        throw new ForcaError('O Força de vendas repetiu uma página do catálogo. Tente novamente.', 502);
+      }
+      if (total !== null && rows.length >= total) return rows;
+      // Array responses have no total. Read until empty: the server may cap
+      // the page size below the requested limit, even on the first page.
     }
     throw new ForcaError('O catálogo excedeu o limite de consulta da integração.', 502);
   }
@@ -129,7 +149,12 @@ export class ForcaClient {
     if (matchingDeadlines.length !== 1) throw new ForcaError('Configure um único prazo de entrega PE com código ERP no Força de vendas.', 409);
     // Keep the missing links visible; a name cannot safely replace an ERP identifier.
     const choices = items => items.map(p => ({ erpId: typeof p.erpId === 'string' && p.erpId.trim() ? p.erpId : null, name: p.name, ...(p.brandErpId ? { brandErpId: p.brandErpId } : {}) }));
-    return { brands: choices(brands), branches: choices(branches), genders: choices(genders), categories: choices(categories), table: { erpId: table.erpId, description: table.description }, deadline: { erpId: matchingDeadlines[0].erpId, name: DEFAULT_DEADLINE } };
+    const brandChoices = choices(brands);
+    // A null category brand is unambiguous once all company brands have ERP.
+    // With missing brand codes it could instead mean an unresolved relation.
+    const allBrandsIdentified = brandChoices.length > 0 && brandChoices.every(b => b.erpId);
+    const categoryChoices = choices(categories).map(c => ({ ...c, ...(c.erpId && !c.brandErpId && allBrandsIdentified ? { shared: true } : {}) }));
+    return { brands: brandChoices, branches: choices(branches), genders: choices(genders), categories: categoryChoices, table: { erpId: table.erpId, description: table.description }, deadline: { erpId: matchingDeadlines[0].erpId, name: DEFAULT_DEADLINE } };
   }
 
   async createBrand(name) {
@@ -172,7 +197,7 @@ export class ForcaClient {
     const brand = find(catalog.brands, data.brandErpId);
     if (!brand || !find(catalog.branches, data.branchErpId) || !find(catalog.genders, data.genderErpId)) throw new ForcaError('Selecione os cadastros disponíveis no Força de vendas.');
     const category = find(catalog.categories, data.categoryErpId);
-    if (data.categoryErpId !== '__new' && (!category || category.brandErpId !== data.brandErpId)) throw new ForcaError('Selecione uma categoria da marca escolhida.');
+    if (data.categoryErpId !== '__new' && (!category || (category.shared !== true && category.brandErpId !== data.brandErpId))) throw new ForcaError('Selecione uma categoria disponível para a marca escolhida.');
     if (!await this.referenceAvailable(data.reference, codes.product)) throw new ForcaError('Essa referência já pertence a outro produto. Escolha outra.', 409);
     const previous = await this.lookup(codes.product);
     if (previous && (previous.productsReference || previous.reference) !== data.reference) throw new ForcaError(`Este comparativo já tem um cadastro na referência ${previous.productsReference || previous.reference}. Reabra o formulário para retomar.`, 409);

@@ -19,15 +19,16 @@ function upstream() {
   const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
   const fetcher = async (url, options = {}) => {
     const parsed = new URL(url), path = parsed.pathname, method = options.method || 'GET';
+    const listResponse = rows => { const page = Number(parsed.searchParams.get('page') || 1), limit = Number(parsed.searchParams.get('limit') || 100); return response(rows.slice((page - 1) * limit, page * limit)); };
     if (path === '/auth') return response({ resource: { token: 'server-only-token' } });
     assert.equal(options.headers.Authorization, 'Bearer server-only-token');
     assert.equal(options.redirect, 'error');
     if (method === 'GET') {
-      if (catalog[path]) return response(catalog[path]);
-      if (path === '/products') return response([...products.values()].filter(p => !parsed.searchParams.get('reference') || p.reference === parsed.searchParams.get('reference')));
+      if (catalog[path]) return listResponse(catalog[path]);
+      if (path === '/products') return listResponse([...products.values()].filter(p => !parsed.searchParams.get('reference') || p.reference === parsed.searchParams.get('reference')));
       if (path.startsWith('/products/')) return response(products.get(decodeURIComponent(path.slice(10))) || {}, products.has(decodeURIComponent(path.slice(10))) ? 200 : 404);
-      if (path === '/variants') return response([...variants.values()]);
-      if (path === '/skus') return response([...skus.values()]);
+      if (path === '/variants') return listResponse([...variants.values()]);
+      if (path === '/skus') return listResponse([...skus.values()]);
       if (path.startsWith('/skus/')) return response(skus.get(path.slice(6)) || {}, skus.has(path.slice(6)) ? 200 : 404);
     }
     if (failPath === path) { failPath = null; return response({ message: 'Internal database error with sensitive details' }, 500); }
@@ -278,8 +279,22 @@ test('the catalog keeps missing ERP links visible and does not expose private br
   assert.deepEqual(catalog.brands[1], { erpId: null, name: 'Moda Feminina' });
   assert.equal(catalog.categories.length, 3);
   await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, brandErpId: 'Moda Feminina' }, image: await image(), catalog }), /cadastros disponíveis/);
-  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, categoryErpId: 'CAT2' }, image: await image(), catalog }), /categoria da marca/);
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input: { ...input, categoryErpId: 'CAT2' }, image: await image(), catalog }), /categoria disponível/);
   assert.equal(backend.writes.length, 0);
+});
+
+test('general categories with confirmed ERP are available for existing brands without changing their links', async () => {
+  const backend = upstream();
+  backend.catalog['/categories'].push({ erpId: '023', name: 'Calçados', brandErpId: null });
+  let catalog = await backend.client.catalog();
+  assert.equal(catalog.categories.find(c => c.erpId === '023').shared, true);
+  await backend.client.publish({ ownerId: 'owner', pairId: 'general', input: { ...input, categoryErpId: '023' }, image: await image(), catalog });
+  assert.equal([...backend.products.values()][0].categoryErpId, '023');
+  assert.equal(backend.writes.some(w => w.path === '/categories'), false);
+  backend.catalog['/brands'].push({ erpId: null, name: 'Marca ainda sem ERP' });
+  catalog = await backend.client.catalog();
+  assert.equal(catalog.categories.find(c => c.erpId === '023').shared, undefined);
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'unresolved', input: { ...input, categoryErpId: '023' }, image: await image(), catalog }), /categoria disponível/);
 });
 
 test('successful HTTP writes are not enough if the API ignores the selected grid or quantities', async () => {
