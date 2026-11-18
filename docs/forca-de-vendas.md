@@ -56,13 +56,27 @@ Os cadastros de marca, filial, gênero e categoria precisam ter códigos ERP par
 
 Na consulta de 18/11/2026, a API retornou 21 marcas, das quais 19 sem ERP, e 32 categorias, das quais 30 sem os vínculos necessários. A API pública atualiza cadastros por ERP e não expõe o identificador interno necessário para atribuir ERP aos já existentes sem código. O ajuste precisa ser feito no painel do Força de vendas: atribuir ERP às marcas e categorias existentes e conferir seus vínculos. Fechar e reabrir o cadastro da Auditoria atualiza as listas. A integração não duplica cadastros para contornar a ausência desses códigos.
 
-O responsável enviou os IDs internos de 3 tipos/filiais, 21 marcas e 32 categorias. O arquivo [forca-vincular-cadastros.sql](forca-vincular-cadastros.sql) prepara o preenchimento dos campos ERP vazios com esses números, preservando códigos existentes. Deve ser executado no **MySQL do Força de vendas TEST/DEV, empresa de chave 2000**, por quem tem acesso a esse banco. Não é uma migração do Supabase. O script confere empresa, IDs e nomes e reverte as alterações se houver erro. Mantém os três cadastros chamados “Calçados” separados pelos IDs 343, 382 e 384. Não cria marcas ou categorias nem altera seus vínculos atuais.
-
-**Estado da preparação:** SQL preparado, ainda não aplicado. A API continua retornando os campos ERP vazios e a conexão de banco disponível não foi estabelecida. Após a execução, conferir as listas da API e os vínculos de marca das categorias. O resultado do SQL inclui esses vínculos; uma categoria sem marca não recebe uma marca presumida pelo script.
+Os códigos usados pela integração devem vir do campo ERP do painel ou da API. IDs internos não substituem esses códigos automaticamente. A proposta SQL anterior foi desativada; o arquivo reservado não contém comandos de alteração. Nenhuma mudança direta no banco é necessária para criar uma marca nova pela integração.
 
 Uma categoria nova pode ser criada no próprio formulário, dentro da marca escolhida. O nome da cor/variante é informado em texto, como “Azul”. A integração permite uma variante por produto neste fluxo inicial.
 
 Ao retomar um envio, o formulário recupera a grade e as quantidades por tamanho do produto existente. Retomadas preservam estoque e configuração; alterações nesses dados de um produto já criado devem ser feitas no painel, conforme o aviso do formulário.
+
+## Criar marca pela Auditoria
+
+No cadastro de produto, clicar em **＋ Nova marca**, informar somente a **Razão Social** e clicar em **Criar marca**. A marca confirmada fica selecionada sem perder o rascunho do produto. Depois, selecionar uma categoria dessa marca ou criar uma categoria pelo próprio formulário.
+
+Regras fixas no servidor:
+
+- Compra mínima: **R$ 2.000,00**; parcelas mínimas: R$ 0,00.
+- Visível no aplicativo: **Sim**.
+- **Ordem dos SKUs vazia**, para usar o padrão do Força de vendas.
+- ERP de marca e endereço gerados automaticamente. Endereço de exemplo varia de forma estável pelo nome, permitindo repetir uma solicitação após falha sem trocar seus códigos.
+- CNPJ e vínculo empresarial são os atribuídos pela API à conta. O endpoint não documenta um CNPJ individual no cadastro de marca; a Auditoria não modifica os dados empresariais compartilhados.
+- Marcas existentes com a mesma Razão Social são reutilizadas apenas quando ERP, compra mínima e visibilidade estão adequados. Cadastros com configuração diferente são preservados e o formulário informa a pendência.
+- Sessão autenticada e comparativo aprovado da própria conta são exigidos. Criar marca não publica produto, não envia imagens e não registra uso da imagem.
+
+Validação real em 18/11/2026: **Marca automática — Auditoria**, ERP `A496cf`, criada pela função de integração com mínimo de R$ 2.000,00, visibilidade habilitada e `skuOrder` vazio. A marca de exemplo `AT1811` também teve sua ordem esvaziada e conferida. A rota de atualização efetivamente validada é `PUT /brands/{erpId}`, apesar da divergência na documentação do fornecedor.
 
 
 ## Envio confirmado pelo formulário do Auditoria

@@ -8,7 +8,21 @@ export class ForcaError extends Error {
 export const DEFAULT_TABLE = 'erp-feiras';
 export const INITIAL_STOCK = 6000;
 export const DEFAULT_DEADLINE = 'PE';
+export const BRAND_MIN_VALUE = '2000.00';
 export const REFERENCE_PATTERN = /^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/;
+
+export function validateBrandName(name) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 150 || /[\u0000-\u001f\u007f]/u.test(name)) throw new ForcaError('Informe a Razão Social da marca, com até 150 caracteres.');
+  return name.trim().replace(/\s+/gu, ' ').normalize('NFC');
+}
+
+export function brandDefaults(company, name) {
+  name = validateBrandName(name);
+  const hash = createHash('sha256').update(`${company}:brand:${name.toLocaleLowerCase('pt-BR')}`).digest('hex');
+  const pick = (values, offset) => values[parseInt(hash.slice(offset, offset + 4), 16) % values.length];
+  return { erpId: `A${hash.slice(0, 5)}`, companyErpId: String(company), name, minValue: BRAND_MIN_VALUE, minInstallmentsValue: '0.00', visible: true, skuOrder: '',
+    addresses: { addressesErpId: `AA${hash.slice(0, 20)}`, street: pick(['Rua Exemplo', 'Rua Modelo', 'Rua de Demonstração'], 4), number: String(100 + parseInt(hash.slice(8, 12), 16) % 900), complement: 'Dados de exemplo — Auditoria', neighborhood: pick(['Centro', 'Bairro Exemplo', 'Bairro Modelo'], 12), city: 'São Paulo', uf: 'SP', zipCode: '01001-000' } };
+}
 
 export function productCodes(ownerId, pairId) {
   const hash = createHash('sha256').update(`${ownerId}:${pairId}`).digest('hex');
@@ -86,7 +100,7 @@ export class ForcaClient {
       // The provider confirms this exact position exists; retain it and fill gaps.
       if (image && occupied && image[2] === occupied[1]) return [{ productErpId: image[1], order: Number(image[2]), path: filename, alreadyExists: true }];
     }
-    const stages = { '/products': 'de cadastro do produto', '/variants': 'da variante', '/skus': 'dos tamanhos', '/prices': 'dos preços na tabela padrão', '/images': 'da imagem', '/categories': 'da categoria', '/deadlines/products': 'do prazo de entrega', '/products/visible': 'da visibilidade no aplicativo' };
+    const stages = { '/brands': 'de cadastro da marca', '/products': 'de cadastro do produto', '/variants': 'da variante', '/skus': 'dos tamanhos', '/prices': 'dos preços na tabela padrão', '/images': 'da imagem', '/categories': 'da categoria', '/deadlines/products': 'do prazo de entrega', '/products/visible': 'da visibilidade no aplicativo' };
     if (!response.ok || response.status === 207) throw new ForcaError(path === '/auth' ? 'As credenciais do Força de vendas foram recusadas.' : `O Força de vendas recusou a etapa ${stages[path.split('?')[0]] || 'de consulta do catálogo'}. Revise os dados ou tente novamente.`, 502);
     return data;
   }
@@ -116,6 +130,21 @@ export class ForcaClient {
     // Keep the missing links visible; a name cannot safely replace an ERP identifier.
     const choices = items => items.map(p => ({ erpId: typeof p.erpId === 'string' && p.erpId.trim() ? p.erpId : null, name: p.name, ...(p.brandErpId ? { brandErpId: p.brandErpId } : {}) }));
     return { brands: choices(brands), branches: choices(branches), genders: choices(genders), categories: choices(categories), table: { erpId: table.erpId, description: table.description }, deadline: { erpId: matchingDeadlines[0].erpId, name: DEFAULT_DEADLINE } };
+  }
+
+  async createBrand(name) {
+    const payload = brandDefaults(this.company, name);
+    const normalize = value => String(value).trim().replace(/\s+/gu, ' ').normalize('NFC').toLocaleLowerCase('pt-BR');
+    const brands = await this.list('/brands');
+    const sameName = brands.filter(b => typeof b.name === 'string' && normalize(b.name) === normalize(payload.name));
+    if (sameName.length > 1) throw new ForcaError('Há mais de uma marca com essa Razão Social. Confira os cadastros no painel.', 409);
+    const existing = sameName[0];
+    if (existing && (!existing.erpId || Number(existing.minValue) !== Number(BRAND_MIN_VALUE) || existing.visible !== true)) throw new ForcaError('Essa marca já existe e precisa ter código ERP, compra mínima de R$ 2.000,00 e visibilidade configurados no painel. Os dados existentes foram preservados.', 409);
+    if (!existing && brands.some(b => b.erpId === payload.erpId)) throw new ForcaError('Não foi possível gerar um código livre para essa marca. Use outra Razão Social.', 409);
+    if (!existing) await this.request('POST', '/brands', payload);
+    const confirmed = (await this.list('/brands')).find(b => b.erpId === (existing?.erpId || payload.erpId));
+    if (!confirmed || normalize(confirmed.name) !== normalize(payload.name) || Number(confirmed.minValue) !== Number(BRAND_MIN_VALUE) || confirmed.visible !== true) throw new ForcaError('Não foi possível confirmar a marca com compra mínima de R$ 2.000,00 e visibilidade. Tente novamente com a mesma Razão Social para conferir o cadastro.', 502);
+    return { brand: { erpId: confirmed.erpId, name: confirmed.name, minValue: BRAND_MIN_VALUE, visible: true }, alreadyExists: Boolean(existing) };
   }
 
   async lookup(erpId) { return this.request('GET', `/products/${encodeURIComponent(erpId)}`, undefined, { notFound: true }); }

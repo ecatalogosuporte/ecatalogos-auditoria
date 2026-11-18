@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { ForcaClient, productCodes, validateProduct } from '../server/forca-service.js';
+import { ForcaClient, productCodes, validateProduct, brandDefaults, validateBrandName } from '../server/forca-service.js';
 
 const env = { FORCA_API_EMAIL: 'integration@example.com', FORCA_API_PASSWORD: 'private-password', FORCA_COMPANY_KEY: '2000' };
 const input = { name: 'Pijama azul', reference: '90.00.123', price: '79.90', sizes: ['P', 'M', 'G', 'GG'], imageSlot: 'after', brandErpId: 'BR1', branchErpId: 'FIL1', genderErpId: 'U', variantName: 'Azul', categoryErpId: 'CAT1' };
@@ -56,6 +56,7 @@ function upstream() {
     else if (path === '/skus') skus.set(body.erpId, ignoreQuantities ? { ...body, minQuantity: 1, multipleQuantity: 1 } : body);
     else if (path === '/prices') prices.set(body.erpId, body);
     else if (path === '/categories') catalog[path].push(body);
+    else if (path === '/brands') catalog[path].push(body);
     else throw new Error(`Unexpected request: ${method} ${path}`);
     return response(body, 201);
   };
@@ -82,6 +83,60 @@ test('new products use the default table, one price, 6000 initial stock and dist
   assert.equal(new Set([...backend.skus.values()].map(s => s.code)).size, 4);
   for (const price of backend.prices.values()) { assert.equal(price.priceTableErpId, 'erp-feiras'); assert.equal(price.price, '79.90'); assert.ok((price.erpId + '-TPerp-feiras').length <= 25); }
   assert.equal(backend.writes.some(w => w.path === '/price-tables'), false);
+});
+
+test('brands require only a legal name, use generated example addresses, fixed 2000 minimum and visible app status', async () => {
+  const backend = upstream();
+  const first = await backend.client.createBrand('  Marca   Nova  ');
+  const write = backend.writes.find(w => w.path === '/brands').body;
+  assert.equal(write.name, 'Marca Nova'); assert.equal(write.minValue, '2000.00');
+  assert.equal(write.minInstallmentsValue, '0.00'); assert.equal(write.visible, true); assert.equal(write.companyErpId, '2000');
+  assert.equal(write.skuOrder, ''); assert.match(write.erpId, /^[A-Za-z0-9]{6}$/);
+  assert.match(write.addresses.zipCode, /^\d{5}-\d{3}$/); assert.equal(write.addresses.uf, 'SP');
+  assert.ok(write.addresses.addressesErpId.length <= 25);
+  assert.equal(first.alreadyExists, false);
+  assert.deepEqual(Object.keys(first.brand).sort(), ['erpId', 'minValue', 'name', 'visible']);
+  const again = await backend.client.createBrand('MARCA NOVA');
+  assert.equal(again.alreadyExists, true); assert.equal(again.brand.erpId, first.brand.erpId);
+  assert.equal(backend.writes.filter(w => w.path === '/brands').length, 1);
+  assert.deepEqual(brandDefaults('2000', 'Marca Nova').addresses, write.addresses);
+  assert.notDeepEqual(brandDefaults('2000', 'Outra Marca').addresses, write.addresses);
+});
+
+test('brand creation validates names and preserves existing or colliding brand records', async () => {
+  for (const name of ['', ' ', null, {}, 'x'.repeat(151), 'Marca\nNova']) assert.throws(() => validateBrandName(name), /Razão Social/);
+  const backend = upstream();
+  backend.catalog['/brands'].push({ name: 'Sem ERP', erpId: null, minValue: '2000', visible: true });
+  backend.catalog['/brands'].push({ name: 'Mínimo diferente', erpId: 'MIN', minValue: '1000', visible: true });
+  backend.catalog['/brands'].push({ name: 'Oculta', erpId: 'HID', minValue: '2000', visible: false });
+  for (const name of ['Sem ERP', 'Mínimo diferente', 'Oculta']) await assert.rejects(backend.client.createBrand(name), /dados existentes foram preservados/);
+  const collision = brandDefaults('2000', 'Nome com colisão');
+  backend.catalog['/brands'].push({ name: 'Outra marca', erpId: collision.erpId });
+  await assert.rejects(backend.client.createBrand('Nome com colisão'), /código livre/);
+  assert.equal(backend.writes.length, 0);
+});
+
+test('a brand saved before an upstream response failure is recovered by name without duplicate writes', async () => {
+  const backend = upstream(), original = backend.client.fetcher;
+  let fail = true;
+  backend.client.fetcher = async (url, options) => {
+    const response = await original(url, options);
+    if (new URL(url).pathname === '/brands' && options.method === 'POST' && fail) { fail = false; return new Response('{}', { status: 500 }); }
+    return response;
+  };
+  await assert.rejects(backend.client.createBrand('Retomada de marca'), /cadastro da marca/);
+  const result = await backend.client.createBrand('Retomada de marca');
+  assert.equal(result.alreadyExists, true); assert.equal(backend.writes.filter(w => w.path === '/brands').length, 1);
+});
+
+test('brand creation confirms its minimum and visibility after saving', async () => {
+  const backend = upstream(), original = backend.client.fetcher;
+  backend.client.fetcher = async (url, options) => {
+    const response = await original(url, options);
+    if (new URL(url).pathname === '/brands' && options.method === 'POST') backend.catalog['/brands'].at(-1).minValue = '0';
+    return response;
+  };
+  await assert.rejects(backend.client.createBrand('Sem confirmação'), /Não foi possível confirmar a marca/);
 });
 
 test('a failed send resumes stable records without resetting stock or duplicating products, sizes or variants', async () => {

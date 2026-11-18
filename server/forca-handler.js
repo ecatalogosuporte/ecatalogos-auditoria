@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { ForcaClient, ForcaError, productCodes, validateProduct } from './forca-service.js';
+import { ForcaClient, ForcaError, productCodes, validateProduct, validateBrandName } from './forca-service.js';
 
 const inFlight = new Set();
 
@@ -47,6 +47,14 @@ export function createForcaHandler({ env = process.env, supabaseFactory = create
         return data;
       };
       const pair = await readPair(), forca = forcaFactory(env), codes = productCodes(ownerId, pairId);
+      if (req.method === 'POST' && input.action === 'createBrand') {
+        const name = validateBrandName(input.name);
+        const brandLock = `brand:${env.FORCA_API_BASE || 'dev'}:${env.FORCA_COMPANY_KEY}:${name.toLocaleLowerCase('pt-BR')}`;
+        if (inFlight.has(brandLock)) throw new ForcaError('Essa marca já está sendo criada. Aguarde e tente novamente.', 409);
+        lock = brandLock; inFlight.add(lock);
+        send(200, await forca.createBrand(name));
+        return;
+      }
       const catalog = await forca.catalog();
       if (req.method === 'GET') {
         const existing = await forca.lookup(codes.product);

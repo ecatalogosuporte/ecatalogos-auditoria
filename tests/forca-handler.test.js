@@ -24,6 +24,7 @@ function fixture(extraEnv = {}) {
     } };
   const handler = createForcaHandler({ env: { VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public-key', ...extraEnv }, supabaseFactory: () => db,
     forcaFactory: () => ({ catalog: async () => ({ brands: [], branches: [], categories: [], genders: [], colors: [], table: { erpId: 'erp-feiras' } }), lookup: async () => state.existing || null, list: async path => path === '/variants' ? state.variants || [] : state.skus || [], suggestReference: async () => '90.00.123',
+      createBrand: async name => { state.brandNames ||= []; state.brandNames.push(name); return { brand: { erpId: 'AB1234', name, minValue: '2000.00', visible: true }, alreadyExists: false }; },
       publish: async args => {
         state.published++; assert.equal(args.pairId, 'pair'); assert.equal(args.ownerId, owner);
         if (state.fail) throw new ForcaError('Falha no envio da imagem.', 502);
@@ -46,6 +47,22 @@ test('the server verifies the session and ownership before consulting or publish
   assert.equal((await invoke({ body: { ...fields, pairId: 'foreign-pair' } })).statusCode, 404);
   state.row.owner_id = 'other-owner'; assert.equal((await invoke()).statusCode, 404);
   assert.equal(state.published, 0); assert.equal(state.downloads.length, 0);
+});
+
+test('creating brands requires an approved owned comparison and accepts only the legal name from the client', async () => {
+  const { state, invoke } = fixture();
+  const body = { action: 'createBrand', pairId: 'pair', name: '  Marca de exemplo  ', minValue: '1', companyErpId: 'other-company', addresses: { street: 'Untrusted' } };
+  assert.equal((await invoke({ body, token: null })).statusCode, 401);
+  assert.equal((await invoke({ body: { ...body, pairId: 'foreign' } })).statusCode, 404);
+  state.row.review_status = 'rejected'; assert.equal((await invoke({ body })).statusCode, 409);
+  state.row.review_status = 'approved';
+  assert.equal((await invoke({ body: { ...body, name: '' } })).statusCode, 400);
+  const result = await invoke({ body });
+  assert.equal(result.statusCode, 200); assert.equal(result.data.brand.minValue, '2000.00');
+  assert.deepEqual(state.brandNames, ['Marca de exemplo']); assert.equal(state.published, 0);
+  assert.equal(state.downloads.length, 0); assert.deepEqual(state.row.usage_tools, ['b2b']);
+  state.anonymous = true; assert.equal((await invoke({ body })).statusCode, 401);
+  assert.equal(state.brandNames.length, 1);
 });
 
 test('nonapproved comparisons and source paths outside the owner cannot be sent', async () => {

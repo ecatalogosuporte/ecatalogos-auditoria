@@ -12,6 +12,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
     if (pending && !force) return;
     active?.controller.abort(); active = null;
     modal.hidden = true; releasePreview(); feedback('');
+    $('forcaBrandEditor').hidden = true; $('forcaBrandName').required = false; $('forcaNewBrand').setAttribute('aria-expanded', 'false'); $('forcaBrandResult').hidden = true;
     form.reset(); quantityDraft.clear(); $('forcaQuantityRows').replaceChildren(); document.body.style.overflow = '';
   }
 
@@ -83,6 +84,39 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
     $('forcaCategoryName').required = selected;
   }
 
+  function brandEditor(show) {
+    if (pending) return;
+    $('forcaBrandEditor').hidden = !show;
+    $('forcaNewBrand').setAttribute('aria-expanded', String(show));
+    $('forcaBrandName').required = show;
+    $('forcaSubmit').disabled = show || !active?.catalog;
+    if (show) { $('forcaBrandResult').hidden = true; $('forcaBrandName').focus(); }
+    else { $('forcaBrandName').value = ''; $('forcaNewBrand').focus(); }
+  }
+
+  async function createBrand() {
+    const context = active;
+    if (!context?.catalog || pending || !isReady() || !$('forcaBrandName').reportValidity()) return;
+    const name = $('forcaBrandName').value.trim();
+    if (!name) { feedback('Informe a Razão Social da marca.'); return; }
+    pending = true; feedback(''); form.inert = true;
+    setBusy(true, 'Criando marca no Força de vendas…');
+    try {
+      const receipt = await request('/api/forca', { method: 'POST', body: JSON.stringify({ action: 'createBrand', pairId: context.pair.id, name }) }, context);
+      if (active !== context || currentUserId() !== context.owner) return;
+      if (!receipt.brand?.erpId || !receipt.brand.name) throw new Error('A marca não foi confirmada. Tente novamente com a mesma Razão Social.');
+      context.catalog.brands = [...context.catalog.brands.filter(b => b.erpId !== receipt.brand.erpId), receipt.brand];
+      options('forcaBrand', context.catalog.brands, receipt.brand.erpId);
+      categories(); catalogPending(context.catalog);
+      $('forcaBrandEditor').hidden = true; $('forcaNewBrand').setAttribute('aria-expanded', 'false');
+      $('forcaBrandName').required = false; $('forcaBrandName').value = '';
+      $('forcaSubmit').disabled = false;
+      $('forcaBrandResult').textContent = `${receipt.brand.name}: ${receipt.alreadyExists ? 'marca já cadastrada e selecionada' : 'marca criada e selecionada'}. Compra mínima de R$ 2.000,00. Visível no aplicativo.`;
+      $('forcaBrandResult').hidden = false;
+    } catch (error) { if (active === context && error.name !== 'AbortError') feedback(error.message); }
+    finally { pending = false; if (active === context) { form.inert = false; setBusy(false); if ($('forcaBrandEditor').hidden) $('forcaCategory').focus(); } }
+  }
+
   function preview() {
     releasePreview();
     const blob = active?.pair[$('forcaImage').value + 'Blob'];
@@ -128,6 +162,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    if (!$('forcaBrandEditor').hidden) { await createBrand(); return; }
     const context = active;
     if (!context?.catalog || pending || !isReady()) return;
     rememberQuantities();
@@ -153,6 +188,10 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
   });
 
   $('forcaBrand').onchange = () => categories();
+  $('forcaNewBrand').onclick = () => brandEditor(true);
+  $('forcaCancelBrand').onclick = () => brandEditor(false);
+  $('forcaCreateBrand').onclick = createBrand;
+  $('forcaBrandName').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); createBrand(); } };
   $('forcaSizes').oninput = renderQuantities;
   $('forcaOpenGrid').onchange = gridHelp;
   $('forcaApplyQuantities').onclick = () => {

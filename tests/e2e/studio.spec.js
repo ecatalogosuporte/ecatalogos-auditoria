@@ -788,6 +788,58 @@ function forcaCatalog() {
     categories: [{ erpId: 'CAT1', name: 'Pijamas', brandErpId: 'BR1' }] };
 }
 
+test('a new Força brand requires only its legal name, retains a failed draft and selects the confirmed brand without publishing the product', async ({ page, context }) => {
+  const backend = await mockSupabase(context);
+  let brandPosts = 0, fail = true;
+  await context.route(/\/api\/forca(?:\?|$)/, async route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: forcaCatalog() });
+    const body = route.request().postDataJSON();
+    expect(body.action).toBe('createBrand'); expect(body.name).toBe('Marca de teste');
+    expect(Object.keys(body).sort()).toEqual(['action', 'name', 'pairId']);
+    brandPosts++;
+    if (fail) return route.fulfill({ status: 502, json: { error: 'Não foi possível confirmar a marca. Tente novamente.' } });
+    return route.fulfill({ json: { brand: { erpId: 'AB1234', name: body.name, minValue: '2000.00', visible: true }, alreadyExists: false } });
+  });
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
+  await page.locator('#reviewCards [data-forca]').click();
+  await page.getByLabel('Quantidade fixa P', { exact: true }).fill('2');
+  await page.locator('#forcaNewBrand').click();
+  await expect(page.locator('#forcaBrandEditor')).toBeVisible();
+  await expect(page.locator('#forcaSubmit')).toBeDisabled();
+  await page.locator('#forcaCreateBrand').click(); expect(brandPosts).toBe(0);
+  await page.locator('#forcaCancelBrand').click();
+  await expect(page.locator('#forcaSubmit')).toBeEnabled();
+  await page.locator('#forcaNewBrand').click();
+  await page.locator('#forcaBrandName').fill('Marca de teste');
+  await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-brand-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('#forcaBrandEditor')).toContainText('R$ 2.000,00');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-brand-mobile.png' });
+  // Enter works even though the product's required price is still empty.
+  await expect(page.locator('#forcaPrice')).toHaveValue('');
+  await page.locator('#forcaBrandName').press('Enter');
+  await expect(page.locator('#forcaFeedback')).toContainText('Não foi possível confirmar');
+  await expect(page.locator('#forcaBrandName')).toHaveValue('Marca de teste');
+  await expect(page.locator('#forcaBrandEditor')).toBeVisible();
+  fail = false; await page.locator('#forcaCreateBrand').click();
+  await expect(page.locator('#forcaBrandResult')).toContainText('marca criada e selecionada');
+  await expect(page.locator('#forcaBrand')).toHaveValue('AB1234');
+  await expect(page.locator('#forcaBrandEditor')).toBeHidden();
+  await expect(page.locator('#forcaSubmit')).toBeEnabled();
+  await expect(page.getByLabel('Quantidade fixa P', { exact: true })).toHaveValue('2');
+  await expect(page.locator('#forcaCategory option[value="CAT1"]')).toHaveCount(0);
+  await page.locator('#forcaCategory').selectOption('__new');
+  await expect(page.locator('#forcaCategoryName')).toBeVisible();
+  expect(brandPosts).toBe(2); expect(backend.pairs[0].is_used).toBe(false);
+  expect(backend.uploads).toBe(2);
+  await page.locator('#forcaNewBrand').click(); await page.locator('#forcaClose').click();
+  await page.locator('#reviewCards [data-forca]').click();
+  await expect(page.locator('#forcaBrandName')).not.toHaveAttribute('required');
+  await expect(page.locator('#forcaBrandResult')).toBeHidden();
+});
+
 test('approved images create products through the app with one price, retained drafts on failure and usage only after success', async ({ page, context }) => {
   const backend = await mockSupabase(context);
   let posts = 0, fail = true;
