@@ -1,8 +1,21 @@
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const SIZE_PRESETS = [
+  { id: 'roupa', name: 'Roupa', sizes: ['P', 'M', 'G', 'GG'] },
+  { id: 'calcado-masculino', name: 'Calçado Masculino', sizes: ['39', '40', '41', '42'] },
+  { id: 'calcado-infantil', name: 'Calçado Infantil', sizes: ['20', '21', '22', '23'] },
+  { id: 'unico', name: 'Único', sizes: ['Unico'] },
+  { id: 'pack', name: 'Pack', sizes: ['Pack'] },
+  { id: 'oculos', name: 'Óculos', sizes: ['50', '54', '56', '58'] },
+  { id: 'luva', name: 'Luva', sizes: ['70', '80', '95', '111'] },
+  { id: 'capacete', name: 'Capacete', sizes: ['56', '58', '60', '62'] },
+  { id: 'calcado-feminino', name: 'Calçado Feminino', sizes: ['34', '35', '36', '37', '38'] },
+  { id: 'roupa-infantil', name: 'Roupa Infantil', sizes: ['2', '4', '6', '8'] }
+];
 
 export function createForcaUI({ getPair, getSession, currentUserId, isReady, setBusy, onSaved }) {
   const $ = id => document.getElementById(id);
   const modal = $('forcaModal'), form = $('forcaForm');
+  $('forcaSizePreset').innerHTML = SIZE_PRESETS.map(p => `<option value="${p.id}">${esc(p.name)} — ${esc(p.sizes.join(', '))}</option>`).join('') + '<option value="custom">Personalizado</option>';
   let active = null, previewUrl = null, pending = false;
   let quantityDraft = new Map();
   const feedback = message => { $('forcaFeedback').textContent = message; $('forcaFeedback').hidden = !message; };
@@ -59,6 +72,10 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
   }
 
   const sizes = () => [...new Set($('forcaSizes').value.split(/[,;\s]+/).filter(Boolean).map(s => s.toUpperCase()))];
+  function syncSizePreset() {
+    const current = $('forcaSizes').value.split(/[,;\s]+/).filter(Boolean).map(s => s.toUpperCase()).join(',');
+    $('forcaSizePreset').value = SIZE_PRESETS.find(p => p.sizes.map(s => s.toUpperCase()).join(',') === current)?.id || 'custom';
+  }
   function rememberQuantities() {
     for (const row of $('forcaQuantityRows').rows) quantityDraft.set(row.dataset.size, {
       size: row.dataset.size, multipleQuantity: row.querySelector('[data-quantity="multipleQuantity"]').value,
@@ -153,7 +170,8 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
       $('forcaName').value = existing?.name || pair.name;
       $('forcaPrice').value = existing?.price || '';
       $('forcaSizes').value = existing?.sizes?.join(', ') || 'P, M, G, GG';
-      $('forcaOpenGrid').value = String(existing?.openGrid ?? prefs.openGrid ?? true);
+      syncSizePreset();
+      $('forcaOpenGrid').value = String(existing?.openGrid ?? false);
       quantityDraft = new Map((existing?.quantities || []).map(q => [q.size, q]));
       renderQuantities(); gridHelp();
       $('forcaResume').hidden = !existing;
@@ -178,7 +196,7 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
     try {
       const receipt = await request('/api/forca', { method: 'POST', body: JSON.stringify(input) }, context);
       if (active !== context || currentUserId() !== context.owner) return;
-      try { localStorage.setItem(`forca-preferences-${context.owner}`, JSON.stringify({ brandErpId: input.brandErpId, branchErpId: input.branchErpId, genderErpId: input.genderErpId, variantName: input.variantName, categoryErpId: input.categoryErpId, openGrid: input.openGrid })); } catch {}
+      try { localStorage.setItem(`forca-preferences-${context.owner}`, JSON.stringify({ brandErpId: input.brandErpId, branchErpId: input.branchErpId, genderErpId: input.genderErpId, variantName: input.variantName, categoryErpId: input.categoryErpId })); } catch {}
       await onSaved(context.pair.id, receipt);
       if (active !== context || currentUserId() !== context.owner) return;
       $('forcaTitle').textContent = 'Produto enviado'; form.hidden = true;
@@ -194,7 +212,12 @@ export function createForcaUI({ getPair, getSession, currentUserId, isReady, set
   $('forcaCancelBrand').onclick = () => brandEditor(false);
   $('forcaCreateBrand').onclick = createBrand;
   $('forcaBrandName').onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); createBrand(); } };
-  $('forcaSizes').oninput = renderQuantities;
+  $('forcaSizePreset').onchange = () => {
+    const preset = SIZE_PRESETS.find(p => p.id === $('forcaSizePreset').value);
+    if (preset) { $('forcaSizes').value = preset.sizes.join(', '); renderQuantities(); }
+    else $('forcaSizes').focus();
+  };
+  $('forcaSizes').oninput = () => { renderQuantities(); syncSizePreset(); };
   $('forcaOpenGrid').onchange = gridHelp;
   $('forcaApplyQuantities').onclick = () => {
     if (!$('forcaBulkFixed').reportValidity() || !$('forcaBulkMin').reportValidity()) return;

@@ -10,6 +10,7 @@ export const INITIAL_STOCK = 6000;
 export const DEFAULT_DEADLINE = 'PE';
 export const BRAND_MIN_VALUE = '2000.00';
 export const REFERENCE_PATTERN = /^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/;
+const EMPTY_LIST_MESSAGES = { '/variants': 'Variantes não encontradas.' };
 
 export function validateBrandName(name) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 150 || /[\u0000-\u001f\u007f]/u.test(name)) throw new ForcaError('Informe a Razão Social da marca, com até 150 caracteres.');
@@ -44,7 +45,7 @@ export function validateProduct(input) {
   if (!Number.isFinite(price) || price <= 0 || price > 999999 || Math.abs(price * 100 - Math.round(price * 100)) > 0.00001) throw new ForcaError('Informe um preço válido, com até duas casas decimais.');
   const sizes = Array.isArray(input.sizes) ? input.sizes.map(s => String(s).trim().toUpperCase()) : [];
   if (!sizes.length || sizes.length > 20 || new Set(sizes).size !== sizes.length || sizes.some(s => !/^[\p{L}\p{N} /+.-]{1,15}$/u.test(s))) throw new ForcaError('Informe de 1 a 20 tamanhos diferentes.');
-  const openGrid = input.openGrid === undefined ? true : input.openGrid;
+  const openGrid = input.openGrid === undefined ? false : input.openGrid;
   if (typeof openGrid !== 'boolean') throw new ForcaError('Escolha grade aberta ou fechada.');
   const quantities = input.quantities === undefined ? sizes.map(size => ({ size, minQuantity: 1, multipleQuantity: 1 })) : input.quantities;
   if (!Array.isArray(quantities) || quantities.length !== sizes.length || new Set(quantities.map(q => q?.size)).size !== sizes.length) throw new ForcaError('Defina as quantidades de cada tamanho.');
@@ -77,7 +78,7 @@ export class ForcaClient {
     this.table = DEFAULT_TABLE;
   }
 
-  async request(method, path, body, { notFound = false } = {}) {
+  async request(method, path, body, { notFound = false, emptyList = false } = {}) {
     if (!this.token && path !== '/auth') {
       this.authPromise ||= this.request('POST', '/auth', { email: this.email, password: this.password, key: this.companyKey }).then(auth => { this.token = auth?.resource?.token; });
       await this.authPromise;
@@ -93,6 +94,11 @@ export class ForcaClient {
     } catch { throw new ForcaError('O Força de vendas não respondeu. Tente novamente; o cadastro será retomado com os mesmos códigos.', 502); }
     if (response.status === 404 && notFound) return null;
     const data = await response.json().catch(() => null);
+    const resource = path.split('?')[0];
+    const emptyMessage = EMPTY_LIST_MESSAGES[resource];
+    // This provider uses HTTP 400 for an empty variants page. Only that
+    // exact GET-list response is empty; write/validation/auth errors still fail.
+    if (emptyList && method === 'GET' && response.status === 400 && emptyMessage && data?.message === emptyMessage) return [];
     if (response.status === 409 && method === 'POST' && path === '/images' && body instanceof FormData) {
       const filename = body.get('images')?.name;
       const image = typeof filename === 'string' ? /^(.+)--([1-4])\.jpg$/.exec(filename) : null;
@@ -101,7 +107,7 @@ export class ForcaClient {
       if (image && occupied && image[2] === occupied[1]) return [{ productErpId: image[1], order: Number(image[2]), path: filename, alreadyExists: true }];
     }
     const stages = { '/brands': 'de cadastro da marca', '/products': 'de cadastro do produto', '/variants': 'da variante', '/skus': 'dos tamanhos', '/prices': 'dos preços na tabela padrão', '/images': 'da imagem', '/categories': 'da categoria', '/deadlines/products': 'do prazo de entrega', '/products/visible': 'da visibilidade no aplicativo' };
-    if (!response.ok || response.status === 207) throw new ForcaError(path === '/auth' ? 'As credenciais do Força de vendas foram recusadas.' : `O Força de vendas recusou a etapa ${stages[path.split('?')[0]] || 'de consulta do catálogo'}. Revise os dados ou tente novamente.`, 502);
+    if (!response.ok || response.status === 207) throw new ForcaError(path === '/auth' ? 'As credenciais do Força de vendas foram recusadas.' : method === 'GET' && resource === '/variants' ? 'Não foi possível consultar as variantes no Força de vendas. Tente novamente.' : `O Força de vendas recusou a etapa ${stages[resource] || 'de consulta do catálogo'}. Revise os dados ou tente novamente.`, 502);
     return data;
   }
 
@@ -109,7 +115,7 @@ export class ForcaClient {
     const rows = [], seen = new Set();
     let total = null;
     for (let page = 1; page <= 50; page++) {
-      const data = await this.request('GET', `${path}?${new URLSearchParams({ ...query, page, limit: 100 })}`, undefined, { notFound: true });
+      const data = await this.request('GET', `${path}?${new URLSearchParams({ ...query, page, limit: 100 })}`, undefined, { notFound: true, emptyList: true });
       const batch = data === null ? [] : Array.isArray(data) ? data : data?.data;
       if (!Array.isArray(batch) || batch.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new ForcaError('O catálogo do Força de vendas retornou uma resposta inesperada.', 502);
       if (data && !Array.isArray(data)) {
@@ -125,8 +131,9 @@ export class ForcaClient {
       }
       let added = 0;
       for (const row of batch) {
-        const key = JSON.stringify(row);
-        if (!seen.has(key)) { seen.add(key); rows.push(row); added++; }
+        const entry = path === '/variants' ? { ...row, productErpId: row.productErpId ?? row.product?.erpId ?? null } : row;
+        const key = JSON.stringify(entry);
+        if (!seen.has(key)) { seen.add(key); rows.push(entry); added++; }
       }
       if (!added) {
         // These endpoints currently return the entire directory regardless of

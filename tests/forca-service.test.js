@@ -76,6 +76,7 @@ test('new products use the default table, one price, 6000 initial stock and dist
   assert.deepEqual(receipt.filenames, [1, 2, 3, 4].map(order => `${receipt.productErpId}--${order}.jpg`));
   assert.deepEqual(backend.writes.filter(w => w.path === '/images').map(w => w.filename), receipt.filenames);
   const product = [...backend.products.values()][0];
+  assert.equal(product.openGrid, false); assert.equal(receipt.openGrid, false);
   assert.equal(product.deadlineErpId, 'D1'); assert.equal(product.promptDelivery, true); assert.equal(product.isVisibleForca, true);
   assert.deepEqual([...backend.skus.values()].map(s => s.size), ['P', 'M', 'G', 'GG']);
   for (const sku of backend.skus.values()) {
@@ -151,6 +152,27 @@ test('a failed send resumes stable records without resetting stock or duplicatin
   assert.equal([...backend.skus.values()][0].stockForca, 5900);
   assert.equal(backend.writes.filter(w => w.path === '/products').length, 1);
   assert.equal(backend.writes.filter(w => w.path === '/variants').length, 1);
+});
+
+test('a saved variant returned with nested product ERP is reused after an empty final page returns HTTP 400', async () => {
+  const backend = upstream(), catalog = await backend.client.catalog(), photo = await image();
+  backend.failOnce('/prices');
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input, image: photo, catalog }), /preços na tabela padrão/);
+  [...backend.skus.values()][0].stockForca = 5900;
+  const original = backend.client.fetcher;
+  backend.client.fetcher = async (url, options) => {
+    const res = await original(url, options);
+    if (new URL(url).pathname !== '/variants' || options.method !== 'GET') return res;
+    const rows = await res.json();
+    return rows.length ? Response.json(rows.map(({ productErpId, ...row }) => ({ ...row, product: { erpId: productErpId } })))
+      : Response.json({ message: 'Variantes não encontradas.' }, { status: 400 });
+  };
+  const receipt = await backend.client.publish({ ownerId: 'owner', pairId: 'pair', input, image: photo, catalog });
+  assert.equal(receipt.imageCount, 4); assert.equal(backend.products.size, 1); assert.equal(backend.variants.size, 1);
+  assert.equal(backend.writes.filter(w => w.path === '/variants').length, 1);
+  assert.equal([...backend.skus.values()][0].stockForca, 5900);
+  [...backend.variants.values()][0].productErpId = 'foreign-product';
+  await assert.rejects(backend.client.publish({ ownerId: 'owner', pairId: 'pair', input, image: photo, catalog }), /outra cor/);
 });
 
 test('invalid data, conflicting references and missing default table cannot publish a product', async () => {

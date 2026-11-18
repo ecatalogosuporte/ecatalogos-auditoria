@@ -788,6 +788,64 @@ function forcaCatalog() {
     categories: [{ erpId: 'CAT1', name: 'Pijamas', brandErpId: 'BR1' }] };
 }
 
+test('size models fill editable sizes and quantity rows, send the chosen sizes and default new products to a closed grid', async ({ page, context }) => {
+  const backend = await mockSupabase(context), catalog = forcaCatalog();
+  let posts = 0;
+  await context.route(/\/api\/forca(?:\?|$)/, async route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: catalog });
+    const body = route.request().postDataJSON(); posts++;
+    expect(body.sizes).toEqual(['20', '21', '22', '23']); expect(body.openGrid).toBe(false);
+    expect(body.price).toBe('129.90');
+    expect(body.quantities).toEqual(body.sizes.map(size => ({ size, multipleQuantity: '2', minQuantity: '3' })));
+    const row = backend.pairs.find(p => p.id === body.pairId);
+    Object.assign(row, { is_used: true, usage_tools: ['forca-de-vendas'] });
+    return route.fulfill({ json: { reference: body.reference, sizes: body.sizes, price: body.price, openGrid: false, usage: { isUsed: true, usedIn: '', usageTools: row.usage_tools } } });
+  });
+  await page.goto('/'); await login(page); await addPair(page);
+  await page.evaluate(() => localStorage.setItem('forca-preferences-11111111-1111-4111-8111-111111111111', JSON.stringify({ openGrid: true })));
+  await page.locator('#openReview').click(); await page.locator('[data-choice="approved"]').click();
+  await page.locator('#reviewCards [data-forca]').click();
+  await expect(page.locator('#forcaOpenGrid')).toHaveValue('false');
+  await expect(page.locator('#forcaSizePreset')).toHaveValue('roupa');
+  await page.locator('#forcaPrice').fill('129.90');
+  await page.locator('#forcaBulkFixed').fill('2'); await page.locator('#forcaBulkMin').fill('3');
+  await page.locator('#forcaApplyQuantities').click();
+  await page.getByLabel('Quantidade fixa P', { exact: true }).fill('4');
+  for (const [model, value] of [
+    ['calcado-masculino', '39, 40, 41, 42'], ['calcado-infantil', '20, 21, 22, 23'],
+    ['unico', 'Unico'], ['pack', 'Pack'], ['oculos', '50, 54, 56, 58'],
+    ['luva', '70, 80, 95, 111'], ['capacete', '56, 58, 60, 62'],
+    ['calcado-feminino', '34, 35, 36, 37, 38'], ['roupa-infantil', '2, 4, 6, 8']
+  ]) {
+    await page.locator('#forcaSizePreset').selectOption(model);
+    await expect(page.locator('#forcaSizes')).toHaveValue(value);
+    await expect(page.locator('#forcaQuantityRows tr')).toHaveCount(value.split(', ').length);
+    await expect(page.locator('#forcaOpenGrid')).toHaveValue('false');
+  }
+  await page.locator('#forcaSizePreset').selectOption('roupa');
+  await expect(page.getByLabel('Quantidade fixa P', { exact: true })).toHaveValue('4');
+  await page.locator('#forcaSizes').fill('24, 25');
+  await expect(page.locator('#forcaSizePreset')).toHaveValue('custom');
+  await expect(page.locator('#forcaQuantityRows tr')).toHaveCount(2);
+  await page.locator('#forcaOpenGrid').selectOption('true');
+  await page.locator('#forcaSizePreset').selectOption('calcado-infantil');
+  await expect(page.locator('#forcaOpenGrid')).toHaveValue('true');
+  await page.locator('#forcaOpenGrid').selectOption('false');
+  await page.locator('#forcaSizePreset').scrollIntoViewIfNeeded();
+  await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-size-presets-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#forcaSizePreset').scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('.forca-dialog').screenshot({ path: 'test-results/forca-size-presets-mobile.png' });
+  await page.locator('#forcaSubmit').click();
+  await expect(page.locator('#forcaSuccessText')).toContainText('Grade fechada'); expect(posts).toBe(1);
+  // Existing products keep the provider's actual grid, even if it is open.
+  catalog.existing = { name: 'Calçado existente', reference: catalog.reference, brandErpId: 'BR1', branchErpId: 'FIL1', genderErpId: 'U', categoryErpId: 'CAT1', variantName: 'Principal', sizes: ['20', '21', '22', '23'], price: '129.90', openGrid: true };
+  await page.locator('#forcaDone').click(); await page.locator('#reviewCards [data-forca]').click();
+  await expect(page.locator('#forcaOpenGrid')).toHaveValue('true');
+  await expect(page.locator('#forcaSizePreset')).toHaveValue('calcado-infantil');
+});
+
 test('a new Força brand requires only its legal name, retains a failed draft and selects the confirmed brand without publishing the product', async ({ page, context }) => {
   const backend = await mockSupabase(context);
   let brandPosts = 0, fail = true;

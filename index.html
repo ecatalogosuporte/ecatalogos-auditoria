@@ -121,8 +121,9 @@
       <div class="forca-fields">
         <label>Nome do produto<input id="forcaName" maxlength="150" required></label>
         <div class="forca-grid"><label>Referência<input id="forcaReference" placeholder="00.00.000" pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{3}" maxlength="9" required></label><label>Preço único (R$)<input id="forcaPrice" type="number" min="0.01" max="999999" step="0.01" placeholder="79,90" required></label></div>
+        <label>Modelo de tamanhos<select id="forcaSizePreset" aria-describedby="forcaSizePresetHelp"></select><small id="forcaSizePresetHelp">Escolha um modelo para preencher os tamanhos. Você também pode editá-los abaixo.</small></label>
         <label>Tamanhos<input id="forcaSizes" value="P, M, G, GG" maxlength="200" required><small>Separe os tamanhos por vírgula. Todos recebem o mesmo preço.</small></label>
-        <label>Grade<select id="forcaOpenGrid" required><option value="true">Aberta</option><option value="false">Fechada</option></select><small id="forcaGridHelp">Na grade aberta, cada tamanho pode ser comprado separadamente, respeitando a quantidade mínima.</small></label>
+        <label>Grade<select id="forcaOpenGrid" required><option value="false">Fechada</option><option value="true">Aberta</option></select><small id="forcaGridHelp">Na grade fechada, a quantidade fixa de cada tamanho define a composição da grade.</small></label>
         <fieldset class="forca-quantities"><legend>Quantidades por tamanho</legend>
           <div class="forca-quantity-bulk"><label>Qtd. fixa para todos<input id="forcaBulkFixed" type="number" min="1" max="999999" step="1" value="1" required></label><label>Qtd. mínima para todos<input id="forcaBulkMin" type="number" min="1" max="999999" step="1" value="1" required></label><button type="button" class="button light" id="forcaApplyQuantities">Aplicar a todos</button></div>
           <div class="forca-quantity-scroll"><table class="forca-quantity-table"><thead><tr><th scope="col">Tamanho</th><th scope="col">Qtd. fixa (G.F.)</th><th scope="col">Qtd. mínima</th></tr></thead><tbody id="forcaQuantityRows"></tbody></table></div>

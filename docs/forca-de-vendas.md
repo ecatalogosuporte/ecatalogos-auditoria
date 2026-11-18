@@ -9,8 +9,8 @@ Regras definidas pelo responsável para o formulário de integração:
 - Usar sempre a **Tabela de Preços Padrão** já existente na empresa. Não criar uma tabela nova por produto nem selecionar as tabelas “Feira” por semelhança de nome.
 - Referência: exatamente **00.00.000**, com sete dígitos e dois pontos. Validar com `/^[0-9]{2}\.[0-9]{2}\.[0-9]{3}$/` e consultar a disponibilidade antes do cadastro. O código ERP é um identificador separado.
 - Cada SKU recebe um código de exatamente **16 dígitos numéricos**, mantido como string para evitar perda de precisão.
-- Grade inicial: P, M, G e GG; os tamanhos podem ser ajustados antes do cadastro.
-- **Grade aberta ou fechada**: selecionável antes do envio, gravada em `openGrid` e confirmada por consulta posterior.
+- Tamanhos iniciais: P, M, G e GG. O campo **Modelo de tamanhos** preenche Roupa; Calçado Masculino (39, 40, 41, 42); Calçado Infantil (20, 21, 22, 23); Único (Unico); Pack (Pack); Óculos (50, 54, 56, 58); Luva (70, 80, 95, 111); Capacete (56, 58, 60, 62); Calçado Feminino (34, 35, 36, 37, 38); ou Roupa Infantil (2, 4, 6, 8). O campo continua editável e indica Personalizado quando os tamanhos divergem dos modelos. A tabela de quantidades acompanha os tamanhos escolhidos.
+- **Grade fechada por padrão** nos novos produtos, independentemente de preferências antigas. É possível selecionar Aberta antes do envio. A escolha é gravada em `openGrid` e confirmada por consulta posterior. Produtos já existentes recuperam sua própria grade e seus tamanhos ao retomar o cadastro.
 - **Quantidade fixa (G.F.) e mínima por tamanho**: padrão 1, com botão para aplicar os mesmos valores a todos e ajuste individual. São enviadas em `multipleQuantity` e `minQuantity`, respectivamente, e confirmadas por leitura do SKU. A configuração não altera o estoque inicial de 6.000 nem o preço único.
 
 ## Exemplo validado em 17/11/2026
@@ -63,6 +63,8 @@ Os códigos usados pela integração devem vir do campo ERP do painel ou da API.
 A integração percorre as páginas com `page` e `limit`, aceitando tanto arrays quanto o formato `{ data, total, page, limit }`. Arrays são consultados até uma página vazia; isso evita perder registros quando o servidor limita a quantidade abaixo do `limit` solicitado. Respostas com total encerram a consulta ao atingir esse total. Códigos ERP são mantidos como strings, preservando zeros à esquerda.
 
 No ambiente validado, `/brands` e `/price-tables` ignoram a paginação e repetem a lista inteira; a repetição exata da segunda página desses dois endpoints é tratada como fim. Repetições inesperadas nos demais catálogos ou respostas incompatíveis com o total geram erro, sem disponibilizar uma lista parcial.
+
+`GET /variants` retorna HTTP 400 com a mensagem exata `Variantes não encontradas.` ao chegar a uma página vazia. Essa resposta é interpretada como fim somente na consulta paginada de variantes; erros em gravações, autenticação ou outras validações continuam bloqueando o envio. A consulta também normaliza `product.erpId` para `productErpId`, aceitando o formato aninhado documentado pela API e o formato plano. Assim a retomada reconhece uma variante já criada sem cadastrar outra nem reiniciar o estoque dos tamanhos existentes. Falhas reais na leitura são apresentadas como erro de consulta, separadas da criação da variante.
 
 Validação real: as categorias foram percorridas em páginas de 10 registros, incluindo a última página vazia. O resultado foi comparado à consulta `/categories?page=1&limit=10000` e contém os mesmos 32 registros e códigos. A carga usa apenas consultas à API, sem alteração no banco.
 

@@ -61,3 +61,24 @@ test('brands and price tables that ignore pagination retain their full directory
   const { client } = fixture((url, page) => Response.json({ data: records.slice(0, 2), total: 5, page }));
   await assert.rejects(client.list('/brands'), /repetiu uma página/);
 });
+
+test('the variants endpoint ends with its exact HTTP 400 empty-page response and normalizes the nested product ERP', async () => {
+  const { client, pages } = fixture((url, page) => page <= 2
+    ? Response.json([{ erpId: `VAR${page}`, name: 'Principal', product: { erpId: `PRODUCT${page}`, name: 'Produto' } }])
+    : Response.json({ message: 'Variantes não encontradas.' }, { status: 400 }));
+  const variants = await client.list('/variants');
+  assert.equal(variants.length, 2); assert.equal(pages.length, 3);
+  assert.deepEqual(variants.map(v => v.productErpId), ['PRODUCT1', 'PRODUCT2']);
+  assert.deepEqual(await fixture(() => Response.json({ message: 'Variantes não encontradas.' }, { status: 400 })).client.list('/variants'), []);
+});
+
+test('empty-list handling never hides variant write failures, authentication failures or unrelated validation errors', async () => {
+  const client = new ForcaClient(env, async url => new URL(url).pathname === '/auth'
+    ? Response.json({ resource: { token: 'token' } })
+    : Response.json({ message: 'Variantes não encontradas.' }, { status: 400 }));
+  await assert.rejects(client.request('POST', '/variants', {}, { emptyList: true }), /recusou a etapa da variante/);
+  for (const [status, message] of [[400, 'Parâmetros inválidos.'], [401, 'Variantes não encontradas.'], [500, 'Variantes não encontradas.']]) {
+    const { client } = fixture(() => Response.json({ message }, { status }));
+    await assert.rejects(client.list('/variants'), /consultar as variantes/);
+  }
+});
